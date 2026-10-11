@@ -3,3 +3,16 @@ vendor
 node_modules
 
 .git
+
+.env
+.env.*
+
+database/*.sqlite*
+
+public/hot
+public/storage
+public/uploads/
+
+storage/app/
+storage/framework/
+storage/logs/

@@ -37,6 +37,25 @@ For local development, run `php artisan security:generate-login-password-keypair
 
 The Blob bridge accepts only validated image uploads up to 4 MB, requires a server-only shared secret, and restricts private-file reads to private Blob URLs. Storage credentials must be configured in Vercel before testing uploads. Vercel's function request-size limits still apply, so larger files must be reduced before upload.
 
+## Railway deployment
+
+1. Connect this GitHub repository to a Railway service. Railway detects the root `Dockerfile`; keep the service on a single replica when using the local-file volume described below.
+2. Add a Railway MySQL service. In the app service, set `DB_CONNECTION=mysql` and reference the database service's `MYSQLHOST`, `MYSQLPORT`, `MYSQLDATABASE`, `MYSQLUSER`, and `MYSQLPASSWORD` variables. For a database service named `MySQL`, for example, use `${{MySQL.MYSQLHOST}}` for `DB_HOST`.
+3. Add production variables to the app service: `APP_ENV=production`, `APP_DEBUG=false`, `APP_KEY` generated with `php artisan key:generate --show`, `APP_URL` set to the Railway HTTPS domain, `APP_TIMEZONE=Asia/Manila`, `SESSION_DRIVER=database`, `CACHE_STORE=database`, `QUEUE_CONNECTION=database`, `FILESYSTEM_DISK=local`, and `LOG_CHANNEL=stderr`. Keep keys and database credentials out of Git.
+4. Set `LOGIN_PASSWORD_PRIVATE_KEY_BASE64` as a sealed Railway variable. In PowerShell, generate a production-only key without replacing the local development key:
+
+   ```powershell
+   $env:LOGIN_PASSWORD_PRIVATE_KEY_PATH = "$env:TEMP\railway-login-password-private.pem"
+   php artisan security:generate-login-password-keypair --base64
+   Remove-Item Env:LOGIN_PASSWORD_PRIVATE_KEY_PATH
+   ```
+
+   Copy the printed base64 value directly into Railway's variable editor, then delete `$env:TEMP\railway-login-password-private.pem`. Never paste the key into Git or chat.
+5. Attach a Railway volume to the app service at `/var/www/html/storage/app`. This preserves public uploads and private ID/payment files across deployments. The Docker image creates the public storage link and fixes volume permissions at startup.
+6. Set the app service's pre-deploy command to `php artisan migrate --force`, then deploy. Do not run `php artisan db:seed` in production: the default seeder creates demonstration accounts with known passwords. Create the production owner account separately with a unique password.
+7. Generate the app's public domain in Railway and verify that `APP_URL` matches it. Confirm the deployment logs show the detected Dockerfile and that migrations complete successfully.
+8. To enable the scheduled reservation reminders, add a second service from this repository with the same app/database variables, start command `php artisan schedule:run`, and Cron Schedule `*/5 * * * *`. Railway cron jobs run in UTC and must be at least five minutes apart; the app timezone keeps its daily reminder schedule on Philippine time.
+
 ## Learning Laravel
 
 Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
