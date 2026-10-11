@@ -19,10 +19,12 @@ RUN apt-get update && apt-get install -y \
 # Enable Apache rewrite
 RUN a2enmod rewrite
 
-# Configure Apache to use port 10000
-RUN sed -i 's/Listen 80/Listen 10000/g' /etc/apache2/ports.conf \
-    && sed -i 's/<VirtualHost \*:80>/<VirtualHost *:10000>/g' \
+
+# Configure Apache to use Railway's PORT
+RUN sed -i 's/Listen 80/Listen 8080/g' /etc/apache2/ports.conf \
+    && sed -i 's/<VirtualHost \*:80>/<VirtualHost *:8080>/g' \
     /etc/apache2/sites-available/000-default.conf
+
 
 # Set Laravel public as document root
 RUN sed -i 's|/var/www/html|/var/www/html/public|g' \
