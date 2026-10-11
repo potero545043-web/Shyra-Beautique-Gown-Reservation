@@ -19,6 +19,7 @@ class ReservationObserver
                 'confirmed' => 'confirmed',
                 'ready_for_pickup' => 'ready_for_pickup',
                 'cancelled' => 'cancelled',
+                'returned' => 'returned',
                 default => null,
             };
 

@@ -12,7 +12,7 @@
                     <p>Update stock details, condition, and replacement value.</p>
                 </div>
 
-                <a class="sb-inventory-secondary" href="{{ route('owner.accessories.index') }}">
+                <a class="sb-inventory-secondary sb-back-btn" href="{{ route('owner.accessories.index') }}">
                     Back to accessories
                 </a>
             </div>

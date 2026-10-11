@@ -33,7 +33,7 @@
         <span class="kicker">403 · Access restricted</span>
         <h1>Not <em>allowed.</em></h1>
         <p>Your account doesn't have access to this page. If you think this is a mistake, please ask the owner.</p>
-        <a href="{{ $home }}">Back to dashboard</a>
+        <a class="sb-back-btn" href="{{ $home }}">Back to dashboard</a>
     </main>
 </body>
 </html>

@@ -43,6 +43,7 @@ it('paginates the reservation desk and handoff queue using separate page control
         'cleanings_per_page' => 24,
     ]))
         ->assertOk()
+        ->assertSee('data-href="' . route('owner.reservations.show', Reservation::where('reservation_code', 'RES-PAGE-001')->firstOrFail()) . '"', false)
         ->assertSee('Showing 1–13')
         ->assertSee('of 13 records')
         ->assertViewHas('rentals', fn($rentals) => $rentals->total() === 13

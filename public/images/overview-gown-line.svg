@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 360" role="img" aria-labelledby="title desc">
+  <title id="title">Ornate line art gown</title>
+  <desc id="desc">A pale gold and rose decorative gown illustration.</desc>
+  <defs>
+    <linearGradient id="gownStroke" x1="170" y1="20" x2="690" y2="330" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#c7ab72"/>
+      <stop offset=".48" stop-color="#b99377"/>
+      <stop offset="1" stop-color="#8c4960"/>
+    </linearGradient>
+    <linearGradient id="gownWash" x1="210" y1="20" x2="680" y2="340" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f2e4c4" stop-opacity=".55"/>
+      <stop offset=".55" stop-color="#ead7bd" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#d7a6b1" stop-opacity=".34"/>
+    </linearGradient>
+    <filter id="softShadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#6d1935" flood-opacity=".11"/>
+    </filter>
+  </defs>
+  <g fill="none" stroke="url(#gownStroke)" stroke-linecap="round" stroke-linejoin="round" filter="url(#softShadow)" opacity=".78">
+    <path d="M323 24c-23 8-42 26-42 47 0 17 14 28 23 38-12 31-36 80-72 145-12 22-25 45-38 70 75 13 150 14 226 3 101-15 189-41 267-83-44 7-90 7-137-3-57-12-110-36-157-73-20-28-31-49-37-63 12-12 22-24 20-39-3-19-22-34-53-42Z" fill="url(#gownWash)" stroke-width="2.2"/>
+    <path d="M304 112c-27 59-52 127-70 205"/>
+    <path d="M324 108c-21 68-34 139-38 212"/>
+    <path d="M346 108c-2 73 9 144 31 214"/>
+    <path d="M361 101c32 85 86 146 162 184"/>
+    <path d="M291 63c24 12 49 12 75 1"/>
+    <path d="M306 28c12 21 29 38 49 52"/>
+    <path d="M349 31c-10 23-25 40-45 51"/>
+    <path d="M282 76c23 16 54 17 93 4"/>
+    <path d="M309 36c-3 16-2 30 5 43"/>
+    <path d="M339 36c4 16 4 30-2 43"/>
+    <path d="M323 24c-8 30-7 59 4 88"/>
+    <path d="M232 254c54 23 115 30 182 21 67-10 132-32 195-67"/>
+    <path d="M205 303c74 20 153 23 237 10 82-12 156-35 224-69"/>
+  </g>
+  <g fill="none" stroke="url(#gownStroke)" stroke-linecap="round" stroke-linejoin="round" opacity=".54">
+    <path d="M412 162c41 8 78 4 112-12 21-10 43-8 54 6 12 15 7 37-12 49-27 17-64 20-112 9"/>
+    <path d="M446 199c54 23 104 24 150 5 29-12 58-8 72 10 12 16 5 38-17 50"/>
+    <path d="M406 142c31 2 53-8 67-30"/>
+    <path d="M431 154c14-21 34-32 60-35"/>
+    <path d="M485 155c11 2 20 8 27 18"/>
+    <path d="M523 199c10-12 24-18 42-16"/>
+    <path d="M567 226c14-8 29-10 46-4"/>
+    <path d="M146 227c21-14 38-33 50-57 8-16 22-22 35-14 13 8 14 26 4 42-17 26-47 44-89 54"/>
+    <path d="M191 233c-15-11-19-25-11-43"/>
+  </g>
+  <g fill="none" stroke="url(#gownStroke)" stroke-linecap="round" stroke-linejoin="round" opacity=".62">
+    <path d="M284 151c23 14 50 14 82 1"/>
+    <path d="M274 180c29 16 65 17 109 3"/>
+    <path d="M262 212c42 18 88 20 139 6"/>
+    <path d="M251 246c56 19 117 21 181 6"/>
+    <path d="M318 124c-9 14-10 29-2 44 8-15 23-26 44-33"/>
+    <path d="M340 130c-4 20 2 37 18 51"/>
+    <path d="M292 204c14-12 29-18 46-17"/>
+    <path d="M324 228c18-17 39-26 63-27"/>
+    <path d="M374 251c17-16 38-25 63-27"/>
+    <path d="M251 284c20-11 42-16 66-15"/>
+    <path d="M450 286c30-12 57-29 80-50"/>
+  </g>
+  <g fill="none" stroke="url(#gownStroke)" stroke-linecap="round" stroke-linejoin="round" opacity=".5">
+    <path d="M300 154c12 0 22 9 22 21s-10 21-22 21-22-9-22-21 10-21 22-21Z"/>
+    <path d="M300 164c6 0 11 5 11 11s-5 11-11 11-11-5-11-11 5-11 11-11Z"/>
+    <path d="M352 197c11 0 20 8 20 19s-9 19-20 19-20-8-20-19 9-19 20-19Z"/>
+    <path d="M410 231c10 0 18 7 18 17s-8 17-18 17-18-7-18-17 8-17 18-17Z"/>
+    <path d="M336 72c7 4 11 10 11 18 0 12-10 21-23 21s-23-9-23-21c0-8 4-14 11-18"/>
+    <path d="M231 167c-22 14-37 34-45 60"/>
+    <path d="M473 111c24 2 39 15 46 39"/>
+    <path d="M548 182c19 5 32 17 38 36"/>
+    <path d="M610 226c21 1 37 10 49 27"/>
+  </g>
+  <g fill="url(#gownStroke)" opacity=".44">
+    <circle cx="318" cy="44" r="3"/>
+    <circle cx="331" cy="51" r="2.5"/>
+    <circle cx="306" cy="56" r="2.5"/>
+    <circle cx="323" cy="90" r="3"/>
+    <circle cx="284" cy="142" r="2.5"/>
+    <circle cx="378" cy="144" r="2.5"/>
+    <circle cx="255" cy="237" r="2.4"/>
+    <circle cx="452" cy="261" r="2.4"/>
+    <circle cx="568" cy="202" r="2.4"/>
+  </g>
+</svg>

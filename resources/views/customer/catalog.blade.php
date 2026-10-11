@@ -71,7 +71,7 @@
                     <option value="">Any availability</option>
                     @foreach($gowns->pluck('status')->filter()->unique()->sort() as $status)
                         <option value="{{ $status }}" @selected(request('availability') === $status)>
-                            {{ ucfirst(str_replace('_', ' ', $status)) }}
+                            {{ $status === 'under_maintenance' ? 'Repair' : ucfirst(str_replace('_', ' ', $status)) }}
                         </option>
                     @endforeach
                 </select>
@@ -94,7 +94,9 @@
                         data-size="{{ strtolower($gown->size ?? '') }}" data-style="{{ strtolower($gown->style ?? '') }}"
                         data-color="{{ strtolower($gown->color ?? '') }}" data-status="{{ $gown->status }}">
 
-                        <span class="sb-product-badge is-{{ $gown->status }}">{{ ucfirst($gown->status) }}</span>
+                        <span class="sb-product-badge is-{{ $gown->status }}">
+                            {{ $gown->status === 'under_maintenance' ? 'Repair' : ucfirst(str_replace('_', ' ', $gown->status)) }}
+                        </span>
 
                         <a class="sb-product-image"
                             href="{{ route($showRoute, $gown) }}" aria-label="View {{ $gown->name }}">
@@ -213,7 +215,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin: 14px 2px 18px;
+            margin: 10px 2px 12px;
             font-size: 13px;
             color: #7a6642;
         }
@@ -223,9 +225,9 @@
             align-items: center;
             justify-content: space-between;
             flex-wrap: wrap;
-            gap: 14px;
-            margin-top: 22px;
-            padding: 16px;
+            gap: 10px;
+            margin-top: 16px;
+            padding: 12px;
             border: 1px solid #ecd9c8;
             border-radius: 14px;
             background: #fffdf8;

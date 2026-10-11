@@ -5,9 +5,15 @@
                 <div>
                     <span class="sb-kicker">IN-STORE BOOKING</span>
                     <h1>Reserve <em>{{ $cartGowns->count() }}</em> gown{{ $cartGowns->count() === 1 ? '' : 's' }}.</h1>
-                    <p>Complete the five steps to record this in-store reservation.</p>
+                    <p>
+                        @if($reservationSource === 'single')
+                            Complete the five steps for this gown only. Your My Cart selections stay separate.
+                        @else
+                            Complete the five steps to record this bulk in-store reservation.
+                        @endif
+                    </p>
                 </div>
-                <a class="sb-outline-btn" href="{{ route(auth()->user()->role . '.catalog') }}">Back to collection</a>
+                <a class="sb-outline-btn sb-back-btn" href="{{ route(auth()->user()->role . '.catalog') }}">Back to collection</a>
             </div>
 
             @if($errors->any())
@@ -46,7 +52,7 @@
                         <div class="sb-reserve-summary-total">
                             <span>Rental total</span><b data-total-display>₱{{ number_format((float) $cartGowns->sum(fn($g) => (float) $g->rental_price), 2) }}</b>
                         </div>
-                        <div class="sb-reserve-summary-note">Add any other gowns the customer needs for the same dates — they are saved as one reservation with a single agreement and payment.</div>
+                        <div class="sb-reserve-summary-note">The selected gowns will be saved together in one reservation with a single agreement and payment.</div>
                     </div>
                 </aside>
 
@@ -54,10 +60,7 @@
                     <form method="POST" action="{{ route(auth()->user()->role . '.reservations.store') }}"
                         enctype="multipart/form-data" class="sb-reservation-form" data-reservation-wizard>
                         @csrf
-                        @foreach($cartGowns as $cartGown)
-                            <input type="hidden" name="gown_ids[]" value="{{ $cartGown->id }}"
-                                data-price="{{ (float) $cartGown->rental_price }}" @if($loop->first) data-primary-gown @endif required>
-                        @endforeach
+                        <input type="hidden" name="reservation_source" value="{{ $reservationSource }}">
 
                         <div class="sb-progress-head">
                             <div class="sb-progress-meta">
@@ -117,7 +120,13 @@
                                             min="{{ today()->format('Y-m-d') }}" value="{{ old('return_date') }}" required>
                                     </label>
                                 </div>
-                                <p class="sb-form-intro">Rental is up to 3 days from pickup, subject to availability.</p>
+                                <div class="sb-availability" data-availability data-state="idle" aria-live="polite">
+                                    <span class="sb-availability-icon" data-availability-icon>…</span>
+                                    <div><b data-availability-title>Checking availability</b>
+                                        <p data-availability-text>Choose dates to confirm every gown in this reservation is free.</p>
+                                    </div>
+                                </div>
+                                <p class="sb-form-intro">Rental is up to {{ \App\Http\Controllers\Customer\DashboardController::MAX_RENTAL_DAYS }} days, followed by a {{ \App\Http\Controllers\Customer\DashboardController::CLEANING_BUFFER_DAYS }}-day cleaning buffer.</p>
                             </section>
 
                             <section class="sb-flow-step" hidden>
@@ -129,6 +138,8 @@
                                             <b>{{ $cartGown->name }}</b>
                                             <small>{{ $cartGown->gown_code }} · {{ $cartGown->size ?? 'Various sizes' }}</small>
                                             <strong>₱{{ number_format((float) $cartGown->rental_price, 2) }}</strong>
+                                            <input type="hidden" name="gown_ids[]" value="{{ $cartGown->id }}"
+                                                data-price="{{ (float) $cartGown->rental_price }}">
                                             @if($cartGowns->count() > 1)
                                                 <button type="button" class="sb-cart-item-remove" data-remove-gown-btn
                                                     data-gown-id="{{ $cartGown->id }}"
@@ -137,23 +148,6 @@
                                         </div>
                                     @endforeach
                                 </div>
-
-                                @if($addableGowns->isNotEmpty())
-                                    <label>Add another gown to this reservation (same dates)
-                                        <select data-add-gown>
-                                            <option value="">Choose a gown to add…</option>
-                                            @foreach($addableGowns as $option)
-                                                <option value="{{ $option->id }}" data-name="{{ $option->name }}"
-                                                    data-code="{{ $option->gown_code }}"
-                                                    data-size="{{ $option->size ?? 'Various sizes' }}"
-                                                    data-price="{{ (float) $option->rental_price }}">
-                                                    {{ $option->name }} · {{ $option->gown_code }} · ₱{{ number_format((float) $option->rental_price, 2) }}
-                                                </option>
-                                            @endforeach
-                                        </select>
-                                    </label>
-                                    <button type="button" class="sb-outline-btn" data-add-gown-btn>Add this gown</button>
-                                @endif
 
                                 <p class="sb-form-intro">Record the customer’s measurements in centimeters to help prepare the fit.</p>
                                 <div class="sb-form-row">
@@ -174,34 +168,11 @@
                                 </div>
                             </section>
 
-                            <section class="sb-flow-step" hidden>
-                                <span class="sb-kicker">STEP 3</span>
-                                <h2>Rental agreement &amp; ID custody</h2>
-                                <label>Live photo of valid physical government ID
-                                    <input type="file" name="government_id" accept="image/jpeg,image/png,image/webp"
-                                        capture="environment" required>
-                                    <small class="sb-field-hint">JPG, PNG or WEBP, up to 4 MB.</small>
-                                </label>
-                                <label>Secure safe slot
-                                    <input name="id_safe_slot" value="{{ old('id_safe_slot') }}"
-                                        placeholder="Example: Safe A · Slot 04" required>
-                                </label>
-                                <details class="sb-agreement">
-                                    <summary><b>Review the rental terms</b><span aria-hidden="true">VIEW</span></summary>
-                                    <ol>
-                                        <li>The renter provides one valid government-issued ID at pickup.</li>
-                                        <li>The shop keeps the physical ID securely and returns it when the gown is returned. No cash security deposit is charged.</li>
-                                        <li>Do not wash, dry-clean, or alter the gown; the shop handles professional cleaning.</li>
-                                        <li>A late fee of ₱{{ number_format($lateFeePerDay, 2) }} accrues for every late day.</li>
-                                        <li>The renter is financially responsible for repair costs or the replacement value if the gown is ruined or lost.</li>
-                                    </ol>
-                                </details>
-                                <label class="sb-agreement-check">
-                                    <input type="checkbox" name="agreement_accepted" value="1" required
-                                        @checked(old('agreement_accepted'))>
-                                    <span>Customer has read and agreed to the rental terms.</span>
-                                </label>
-                            </section>
+                            @include('components.reservation-agreement-step', [
+                                'gownCount' => $cartGowns->count(),
+                                'maxRentalDays' => 3,
+                                'lateFeePerDay' => $lateFeePerDay,
+                            ])
 
                             <section class="sb-flow-step" hidden>
                                 <span class="sb-kicker">STEP 4</span>
@@ -211,18 +182,30 @@
                                     <div><span>Rental fee (all gowns)</span><b data-total-display>₱{{ number_format((float) $cartGowns->sum(fn($g) => (float) $g->rental_price), 2) }}</b></div>
                                     <div><span>Total amount due</span><b data-total-display>₱{{ number_format((float) $cartGowns->sum(fn($g) => (float) $g->rental_price), 2) }}</b></div>
                                 </div>
-                                <label>Amount collected now (PHP)
+                                <div class="sb-method-options sb-payment-choice-options" role="radiogroup"
+                                    aria-label="Payment amount">
+                                    <label class="sb-method-option">
+                                        <input type="radio" name="payment_option" value="full" required
+                                            data-payment-option @checked(old('payment_option', 'full') === 'full')>
+                                        <span><b>Full payment</b><small data-full-payment-label>₱{{ number_format((float) $cartGowns->sum(fn($g) => (float) $g->rental_price), 2) }}</small></span>
+                                    </label>
+                                    <label class="sb-method-option">
+                                        <input type="radio" name="payment_option" value="downpayment" required
+                                            data-payment-option @checked(old('payment_option') === 'downpayment')>
+                                        <span><b>Down payment</b><small>More than ₱500.00</small></span>
+                                    </label>
+                                </div>
+                                @error('payment_option')<small class="sb-check-error">{{ $message }}</small>@enderror
+                                <label>Amount to pay now (PHP)
                                     <input type="number" name="payment_amount" min="0.01"
                                         max="{{ (float) $cartGowns->sum(fn($g) => (float) $g->rental_price) }}" step="0.01"
                                         value="{{ old('payment_amount', (float) $cartGowns->sum(fn($g) => (float) $g->rental_price)) }}" required
                                         data-payment-amount>
-                                    <small>Collect the full rental total or a down payment greater than ₱500.00.</small>
+                                    <small>Payment is recorded as pending and must be verified by staff.</small>
                                 </label>
-                                <label>Payment method
-                                    <select name="payment_method" required>
-                                        <option value="cash" @selected(old('payment_method', 'cash') === 'cash')>Cash</option>
-                                    </select>
-                                </label>
+                                <input type="hidden" name="payment_method" value="cash">
+                                <p class="sb-payment-method-note">Payment method <b>Cash</b></p>
+                                <p>Remaining balance: <b data-balance-remaining>₱0.00</b></p>
                             </section>
 
                             <section class="sb-flow-step" hidden>
@@ -240,22 +223,23 @@
                                     <section class="sb-confirm-group">
                                         <h3>Payment</h3>
                                         <div><span>Payment method</span><b>Cash</b></div>
-                                        <div><span>Amount collected now</span><b data-confirm="payment_amount">—</b></div>
+                                        <div><span>Payment option</span><b data-confirm="payment_option">Full payment</b></div>
+                                        <div><span>Amount to pay now</span><b data-confirm="payment_amount">—</b></div>
                                     </section>
                                     <section class="sb-confirm-group">
-                                        <h3>Required before saving</h3>
-                                        <div><span>ID photo</span><b>Required</b></div>
-                                        <div><span>Safe slot</span><b data-confirm="id_safe_slot">—</b></div>
-                                        <div><span>Agreement</span><b>Customer accepted</b></div>
+                                        <h3>Agreement &amp; ID custody</h3>
+                                        <div><span>ID photo</span><b>Uploaded privately</b></div>
+                                        <div><span>Physical ID</span><b>Required at pickup</b></div>
+                                        <div><span>Payment review</span><b>Pending staff verification</b></div>
                                     </section>
                                 </div>
                             </section>
 
                             <div class="sb-step-controls">
-                                <button type="button" class="sb-outline-btn" data-step-back disabled>Back</button>
+                                <button type="button" class="sb-outline-btn sb-back-btn" data-step-back disabled>Back</button>
                                 <span data-step-count>Step 1 of 5</span>
                                 <button type="button" class="sb-btn" data-step-next>Continue</button>
-                                <button class="sb-btn sb-btn-confirm" type="submit" data-step-submit hidden>Save agreement and payment</button>
+                                <button class="sb-btn sb-btn-confirm" type="submit" data-step-submit hidden>Submit reservation request</button>
                             </div>
                         </div>
                     </form>
@@ -277,7 +261,12 @@
             const pickup = form.querySelector('[name="pickup_date"]');
             const returned = form.querySelector('[name="return_date"]');
             const paymentAmount = form.querySelector('[name="payment_amount"]');
-            const safeSlot = form.querySelector('[name="id_safe_slot"]');
+            const paymentOptions = [...form.querySelectorAll('[data-payment-option]')];
+            const availabilityBox = form.querySelector('[data-availability]');
+            const availabilityUrl = @json(route(auth()->user()->role . '.reservations.availability', [], false));
+            const maxRentalDays = @json(\App\Http\Controllers\Customer\DashboardController::MAX_RENTAL_DAYS);
+            let datesVerified = false;
+            let availabilityRequest = 0;
             let current = steps.findIndex(step =>
                 errors.some(name => step.querySelector(`[name="${name}"]`))
             );
@@ -285,68 +274,42 @@
             if (current < 0) current = 0;
 
             const peso = n => '₱' + Number(n).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-            const money = n => new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(n));
+            const selectedPaymentOption = () => paymentOptions.find(input => input.checked)?.value || 'full';
+            const updatePayment = () => {
+                const total = [...form.querySelectorAll('input[name="gown_ids[]"]')].reduce((sum, input) => {
+                    return sum + Number(input.dataset.price || 0);
+                }, 0);
+                const isFull = selectedPaymentOption() === 'full';
+                paymentAmount.max = total.toFixed(2);
+                paymentAmount.min = isFull ? '0.01' : '500.01';
+                paymentAmount.readOnly = isFull;
+                if (isFull) {
+                    paymentAmount.value = total.toFixed(2);
+                } else if (Number(paymentAmount.value) >= total) {
+                    paymentAmount.value = '';
+                }
+                form.querySelector('[data-full-payment-label]').textContent = peso(total);
+                form.querySelector('[data-balance-remaining]').textContent = peso(Math.max(0, total - (Number(paymentAmount.value) || 0)));
+            };
 
-            /* ---- Multiple gowns in one reservation ---- */
-            const addGownSelect = form.querySelector('[data-add-gown]');
-            const addGownBtn = form.querySelector('[data-add-gown-btn]');
-            const gownsContainer = form.querySelector('.sb-selected-gowns');
-            const gownNames = [];
-
+            /* ---- Gowns carried over from the staff cart ---- */
             const refreshGownTotals = () => {
                 const total = [...form.querySelectorAll('input[name="gown_ids[]"]')].reduce((sum, input) => {
                     return sum + Number(input.dataset.price || 0);
                 }, 0);
                 form.querySelectorAll('[data-total-display]').forEach(el => el.textContent = peso(total));
-                paymentAmount.max = total.toFixed(2);
-                if (!paymentAmount.value || Number(paymentAmount.value) > total) {
-                    paymentAmount.value = total.toFixed(2);
-                }
+                updatePayment();
+                const gownNames = [...form.querySelectorAll('[data-gown-row]')].map(row => {
+                    return row.querySelector('b').textContent + ' · ' + row.querySelector('small').textContent.split(' · ')[0];
+                });
                 form.querySelector('[data-confirm="gowns"]').textContent = gownNames.length
                     ? gownNames.join(' + ')
                     : '—';
                 updateSummary();
+                checkAvailability();
             };
 
-            const addGownRow = (id, name, code, size, price) => {
-                const row = document.createElement('div');
-                row.className = 'sb-selected-gown';
-                row.innerHTML = '<b></b><small></small><strong></strong>';
-                row.querySelector('b').textContent = name;
-                row.querySelector('small').textContent = code + ' · ' + size;
-                row.querySelector('strong').textContent = peso(price);
-
-                const hidden = document.createElement('input');
-                hidden.type = 'hidden';
-                hidden.name = 'gown_ids[]';
-                hidden.value = id;
-                hidden.dataset.price = price;
-                row.appendChild(hidden);
-
-                const remove = document.createElement('button');
-                remove.type = 'button';
-                remove.className = 'sb-cart-item-remove';
-                remove.textContent = '×';
-                remove.setAttribute('aria-label', 'Remove ' + name);
-                remove.addEventListener('click', () => {
-                    const index = gownNames.indexOf(name + ' · ' + code);
-                    if (index > -1) gownNames.splice(index, 1);
-                    row.remove();
-                    refreshGownTotals();
-                });
-                row.appendChild(remove);
-
-                gownsContainer.appendChild(row);
-                gownNames.push(name + ' · ' + code);
-            };
-
-            // Seed the list with the gown(s) already carried over from the cart.
-            form.querySelectorAll('[data-gown-row]').forEach(row => {
-                const hidden = row.querySelector('input[name="gown_ids[]"]');
-                gownNames.push(row.querySelector('b').textContent + ' · ' + row.querySelector('small').textContent.split(' · ')[0]);
-            });
-
-            // Let staff drop a gown straight from this list before saving.
+            // Staff can remove selected gowns here; adding gowns happens in the cart.
             form.querySelectorAll('[data-remove-gown-btn]').forEach(button => {
                 button.addEventListener('click', () => {
                     const row = button.closest('[data-gown-row]');
@@ -356,20 +319,6 @@
                     refreshGownTotals();
                 });
             });
-
-            if (addGownBtn && addGownSelect) {
-                addGownBtn.addEventListener('click', () => {
-                    const opt = addGownSelect.selectedOptions[0];
-                    if (!opt || !opt.value) { addGownSelect.reportValidity(); return; }
-                    if (form.querySelector('input[name="gown_ids[]"][value="' + opt.value + '"]')) {
-                        addGownSelect.value = '';
-                        return;
-                    }
-                    addGownRow(opt.value, opt.dataset.name, opt.dataset.code, opt.dataset.size, opt.dataset.price);
-                    addGownSelect.value = '';
-                    refreshGownTotals();
-                });
-            }
 
             const setGuestRequired = () => {
                 guestName.required = guestPhone.required = !existing.value;
@@ -385,7 +334,44 @@
                 form.querySelector('[data-confirm="payment_amount"]').textContent = paymentAmount.value
                     ? new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(Number(paymentAmount.value))
                     : '—';
-                form.querySelector('[data-confirm="id_safe_slot"]').textContent = safeSlot.value.trim() || '—';
+                form.querySelector('[data-confirm="payment_option"]').textContent =
+                    selectedPaymentOption() === 'full' ? 'Full payment' : 'Down payment';
+            };
+
+            const setAvailability = (state, title, text) => {
+                availabilityBox.dataset.state = state;
+                availabilityBox.querySelector('[data-availability-icon]').textContent =
+                    state === 'ok' ? '✓' : (state === 'error' ? '!' : '…');
+                availabilityBox.querySelector('[data-availability-title]').textContent = title;
+                availabilityBox.querySelector('[data-availability-text]').textContent = text;
+            };
+
+            const checkAvailability = async () => {
+                const requestId = ++availabilityRequest;
+                datesVerified = false;
+                const gownIds = [...form.querySelectorAll('input[name="gown_ids[]"]')].map(input => input.value);
+                if (!pickup.value || !returned.value || gownIds.length === 0) {
+                    setAvailability('idle', 'Checking availability', 'Choose dates and at least one gown to check availability.');
+                    return;
+                }
+                setAvailability('busy', 'Checking availability', 'Verifying every gown is free for these dates…');
+                try {
+                    const query = new URLSearchParams({ pickup_date: pickup.value, return_date: returned.value });
+                    gownIds.forEach(id => query.append('gown_ids[]', id));
+                    const response = await fetch(availabilityUrl + '?' + query, {
+                        headers: { Accept: 'application/json' },
+                    });
+                    if (!response.ok) throw new Error('Availability check failed.');
+                    const result = await response.json();
+                    if (requestId !== availabilityRequest) return;
+                    datesVerified = result.available;
+                    setAvailability(result.available ? 'ok' : 'error',
+                        result.available ? 'All gowns are available' : 'Not available for these dates',
+                        result.available ? `${result.summary} · ${result.rental_days} day rental` : result.reason);
+                } catch (error) {
+                    if (requestId !== availabilityRequest) return;
+                    setAvailability('error', 'Could not verify availability', 'Try again, or contact the boutique to book these gowns.');
+                }
             };
 
             const show = () => {
@@ -408,10 +394,14 @@
             };
 
             existing.addEventListener('change', setGuestRequired);
-            [guestName, pickup, returned, paymentAmount, safeSlot].forEach(field => {
+            [guestName, pickup, returned, paymentAmount].forEach(field => {
                 field.addEventListener('input', updateSummary);
                 field.addEventListener('change', updateSummary);
             });
+            paymentOptions.forEach(input => input.addEventListener('change', () => {
+                updatePayment();
+                updateSummary();
+            }));
             setGuestRequired();
             refreshGownTotals();
 
@@ -430,6 +420,11 @@
                     invalid.reportValidity();
                     return;
                 }
+                if (current === 0 && !datesVerified) {
+                    setAvailability('error', 'Availability not confirmed', 'Wait for a successful date availability check before continuing.');
+                    checkAvailability();
+                    return;
+                }
 
                 if (current < steps.length - 1) {
                     current++;
@@ -438,10 +433,14 @@
             });
 
             const dateLimit = () => {
-                if (!pickup.value) return;
+                if (!pickup.value) {
+                    datesVerified = false;
+                    checkAvailability();
+                    return;
+                }
 
                 const [year, month, day] = pickup.value.split('-').map(Number);
-                const max = new Date(Date.UTC(year, month - 1, day + 2)).toISOString().slice(0, 10);
+                const max = new Date(Date.UTC(year, month - 1, day + maxRentalDays - 1)).toISOString().slice(0, 10);
                 returned.min = pickup.value;
                 returned.max = max;
 
@@ -452,9 +451,16 @@
                 }
 
                 updateSummary();
+                checkAvailability();
             };
 
             pickup.addEventListener('change', dateLimit);
+            returned.addEventListener('change', checkAvailability);
+            paymentAmount.addEventListener('input', () => {
+                const total = [...form.querySelectorAll('input[name="gown_ids[]"]')].reduce((sum, input) => sum + Number(input.dataset.price || 0), 0);
+                form.querySelector('[data-balance-remaining]').textContent = peso(Math.max(0, total - (Number(paymentAmount.value) || 0)));
+                updateSummary();
+            });
             dateLimit();
             show();
         })();

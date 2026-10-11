@@ -6,24 +6,29 @@
                     <h1>{{ $gown->name }}</h1>
                     <p>{{ $gown->gown_code }} · {{ $gown->color ?: 'Color not specified' }} · Size {{ $gown->size ?: '—' }}</p>
                 </div>
-                @if($gown->archived_at)
-                    <form class="sb-gown-detail-action" method="POST" action="{{ route('owner.gowns.restore', $gown) }}"
-                        data-confirm-title="Restore" data-confirm-accent="this gown?"
-                        data-confirm-message="Are you sure you want to restore this gown? It will return to active inventory."
-                        data-confirm-yes="Yes, restore" data-confirm-no="Keep archived">
-                        @csrf
-                        @method('PATCH')
-                        <button class="sb-inventory-primary" type="submit">Restore gown</button>
-                    </form>
-                @elseif(!in_array($gown->status, ['reserved', 'rented'], true))
-                    <form class="sb-gown-detail-action" method="POST" action="{{ route('owner.gowns.archive', $gown) }}"
-                        data-confirm-title="Archive" data-confirm-accent="this gown?"
-                        data-confirm-message="This gown will move to your archive. You can restore it at any time."
-                        data-confirm-yes="Archive gown" data-confirm-no="Keep gown">
-                        @csrf
-                        <button class="sb-inventory-secondary" type="submit">Archive gown</button>
-                    </form>
-                @endif
+                <div class="sb-gown-detail-actions">
+                    <a class="sb-outline-btn sb-back-btn" href="{{ route('owner.gowns.index', $gown->archived_at ? ['archived' => 1] : []) }}">Back</a>
+                    @if($gown->archived_at)
+                        <form class="sb-gown-detail-action" method="POST" action="{{ route('owner.gowns.restore', $gown) }}"
+                            data-confirm-title="Restore" data-confirm-accent="this gown?"
+                            data-confirm-message="Are you sure you want to restore this gown? It will return to active inventory."
+                            data-confirm-yes="Yes, restore" data-confirm-no="Keep archived">
+                            @csrf
+                            @method('PATCH')
+                            <button class="sb-inventory-primary" type="submit">Restore gown</button>
+                        </form>
+                    @else
+                        @if($gown->status !== 'reserved')
+                            <form class="sb-gown-detail-action" method="POST" action="{{ route('owner.gowns.archive', $gown) }}"
+                                data-confirm-title="Archive" data-confirm-accent="this gown?"
+                                data-confirm-message="This gown will move to your archive. You can restore it at any time."
+                                data-confirm-yes="Archive gown" data-confirm-no="Keep gown">
+                                @csrf
+                                <button class="sb-inventory-secondary" type="submit">Archive gown</button>
+                            </form>
+                        @endif
+                    @endif
+                </div>
             </div>
             <div class="sb-columns sb-inventory-detail-grid">
                 <section class="sb-panel">
@@ -31,7 +36,7 @@
                         <img src="{{ $gown->image_url }}" alt="{{ $gown->name }}">
                     </div>
                     <div class="sb-inventory-content">
-                        <span class="sb-inventory-status">{{ ucfirst(str_replace('_',' ',$gown->status)) }}</span>
+                        <span class="sb-inventory-status {{ $gown->archived_at ? 'is-archived' : 'sb-status-' . $gown->status }}">{{ $gown->archived_at ? 'Archived' : ucfirst(str_replace('_',' ',$gown->status)) }}</span>
                         <h2>{{ $gown->name }}</h2>
                         <p>{{ $gown->description ?: 'No description added.' }}</p>
                     </div>

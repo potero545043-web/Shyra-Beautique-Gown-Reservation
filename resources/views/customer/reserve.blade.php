@@ -8,9 +8,14 @@
             <div class="sb-heading">
                 <div><span class="sb-kicker">RESERVATION REQUEST</span>
                     <h1>Reserve your <em>gowns.</em></h1>
-                    <p>Add every gown you need, set the dates once, and submit a single request. Nothing is sent until
-                        you confirm at the end.</p>
-                </div><a class="sb-outline-btn" href="{{ route('customer.catalog') }}">Back to collection</a>
+                    <p>
+                        @if($reservationSource === 'single')
+                            Review this gown, choose your dates, and submit its reservation. Your My Cart selections stay separate.
+                        @else
+                            Add every gown you need, set the dates once, and submit a single request. Nothing is sent until you confirm at the end.
+                        @endif
+                    </p>
+                </div><a class="sb-outline-btn sb-back-btn" href="{{ route('customer.catalog') }}">Back to collection</a>
             </div>
             @if(session('success'))
                 <div class="sb-success">{{ session('success') }}</div>
@@ -47,13 +52,15 @@
                                         <span
                                             class="sb-cart-item-price">₱{{ number_format((float) $gown->rental_price, 2) }}</span>
                                     </div>
-                                    <form method="POST" action="{{ route('customer.cart.remove', $gown) }}"
-                                        class="sb-cart-item-remove">
-                                        @csrf
-                                        @method('DELETE')
-                                        <button type="submit" aria-label="Remove {{ $gown->name }}"
-                                            title="Remove">×</button>
-                                    </form>
+                                    @if($reservationSource === 'cart')
+                                        <form method="POST" action="{{ route('customer.cart.remove', $gown) }}"
+                                            class="sb-cart-item-remove">
+                                            @csrf
+                                            @method('DELETE')
+                                            <button type="submit" aria-label="Remove {{ $gown->name }}"
+                                                title="Remove">×</button>
+                                        </form>
+                                    @endif
                                 </div>
                             @endforeach
                         </div>
@@ -73,6 +80,10 @@
                 <div class="sb-reserve-main">
                     <form method="POST" action="{{ route('customer.reserve.store') }}" enctype="multipart/form-data"
                         class="sb-reservation-form" data-reservation-wizard>@csrf
+                        @foreach($gowns as $gown)
+                            <input type="hidden" name="gown_ids[]" value="{{ $gown->id }}">
+                        @endforeach
+                        <input type="hidden" name="reservation_source" value="{{ $reservationSource }}">
                         <div class="sb-form-errors" data-step-error role="alert" hidden></div>
 
                         <div class="sb-progress-head">
@@ -89,7 +100,7 @@
                         <ol class="sb-step-dots" aria-label="Reservation steps">
                             <li data-step-dot class="is-active"><span>1</span><b>Dates</b></li>
                             <li data-step-dot><span>2</span><b>Gowns &amp; sizing</b></li>
-                            <li data-step-dot><span>3</span><b>Agreement</b></li>
+                            <li data-step-dot><span>3</span><b>Agreement &amp; ID</b></li>
                             <li data-step-dot><span>4</span><b>Payment</b></li>
                             <li data-step-dot><span>5</span><b>Confirmation</b></li>
                         </ol>
@@ -122,7 +133,8 @@
                                 </div>
 
                                 <p class="sb-form-intro">All {{ $gownCount }} gown{{ $gownCount === 1 ? '' : 's' }}
-                                    share these dates. Rental is up to {{ $maxRentalDays }} days. Availability is
+                                    share these dates. Rental is up to {{ $maxRentalDays }} days, followed by a
+                                    {{ \App\Http\Controllers\Customer\DashboardController::CLEANING_BUFFER_DAYS }}-day cleaning buffer. Availability is
                                     subject to staff approval. Late returns accrue
                                     ₱{{ number_format($lateFeePerDay, 2) }} per day.
                                 </p>
@@ -166,58 +178,11 @@
                                         placeholder="Shoes, hairstyle, or fit preferences...">{{ old('notes') }}</textarea></label>
                             </section>
 
-                            {{-- STEP 3 · Agreement --}}
-                            <section class="sb-flow-step"><span class="sb-kicker">STEP 3</span>
-                                <h2>Rental agreement</h2>
-                                <p class="sb-form-intro">Please review the key rental details before continuing. This
-                                    single agreement covers all {{ $gownCount }}
-                                    gown{{ $gownCount === 1 ? '' : 's' }} in this reservation.</p>
-
-                                <div class="sb-agreement-key-details" aria-label="Key rental details">
-                                    <div><span>Gowns</span><b>{{ $gownCount }}
-                                            piece{{ $gownCount === 1 ? '' : 's' }}</b>
-                                    </div>
-                                    <div><span>Rental period</span><b>Up to {{ $maxRentalDays }} days</b></div>
-                                    <div><span>Pickup</span><b>In person</b></div>
-                                    <div><span>ID required</span><b>Valid government-issued ID</b></div>
-                                    <div><span>Late fee</span><b>₱{{ number_format($lateFeePerDay, 2) }} per day</b>
-                                    </div>
-                                </div>
-
-                                <details class="sb-agreement">
-                                    <summary><b>View full rental terms</b><span aria-hidden="true">VIEW</span></summary>
-                                    <ol>
-                                        <li><b>Rental duration.</b> The gowns may be rented for up to
-                                            {{ $maxRentalDays }} days from the pickup date. The rental period ends at
-                                            the agreed return date.
-                                        </li>
-                                        <li><b>Pickup requirement.</b> The renter must collect the gowns in person and
-                                            provide one valid government-issued ID. The shop keeps the physical ID
-                                            securely as a record and returns it after the gowns are returned.</li>
-                                        <li><b>Return deadline.</b> Every gown must be returned by the agreed return
-                                            date during business hours. A late fee of
-                                            ₱{{ number_format($lateFeePerDay, 2) }} accrues for every late day.</li>
-                                        <li><b>Condition and damage.</b> Staff inspect each gown when it is returned.
-                                            Late-return or damage charges are assessed under the rental terms and the
-                                            owner's decision.</li>
-                                        <li><b>Cancellation policy.</b> Requests can be cancelled free of charge
-                                            before staff approval. A down payment becomes non-refundable once the
-                                            reservation is confirmed.</li>
-                                        <li><b>Availability.</b> The reservation request is subject to staff approval.
-                                            The system checks every gown for conflicting dates before accepting a
-                                            request.</li>
-                                    </ol>
-                                </details>
-
-                                <div class="sb-agreement-checks">
-                                    <label class="sb-agreement-check"><input type="checkbox" name="agreement_accepted"
-                                            value="1" required @checked(old('agreement_accepted'))><span>I have read and
-                                            agree to the rental terms and conditions for all gowns in this
-                                            reservation.</span></label>
-                                    @error('agreement_accepted')<small
-                                    class="sb-check-error">{{ $message }}</small>@enderror
-                                </div>
-                            </section>
+                            @include('components.reservation-agreement-step', [
+                                'gownCount' => $gownCount,
+                                'maxRentalDays' => $maxRentalDays,
+                                'lateFeePerDay' => $lateFeePerDay,
+                            ])
 
                             {{-- STEP 4 · Payment --}}
                             <section class="sb-flow-step"><span class="sb-kicker">STEP 4</span>
@@ -294,7 +259,7 @@
                             </section>
 
                             <div class="sb-step-controls">
-                                <button type="button" class="sb-outline-btn" data-step-back>Back</button>
+                                <button type="button" class="sb-outline-btn sb-back-btn" data-step-back>Back</button>
                                 <span data-step-count>Step 1 of 5</span>
                                 <button type="button" class="sb-btn" data-step-next>Continue</button>
                                 <button class="sb-btn sb-btn-confirm" type="submit" data-step-submit hidden>Submit
@@ -330,7 +295,8 @@
             const availabilityBox = form.querySelector('[data-availability]');
             const stepError = form.querySelector('[data-step-error]');
             const maxRentalDays = @json($maxRentalDays);
-            const availabilityUrl = @json(route('customer.reserve.availability', $gowns->first()));
+            const availabilityUrl = @json(route('customer.reserve.availability', $gowns->first(), false));
+            const selectedGownIds = @json($gowns->pluck('id')->values());
             let datesVerified = false;
 
             const normalizeContactNumber = () => {
@@ -376,6 +342,7 @@
                 setAvailability('busy', 'Checking availability', 'Verifying every gown is free for your dates\u2026');
                 try {
                     const query = new URLSearchParams({ pickup_date: pickup.value, return_date: ret.value });
+                    selectedGownIds.forEach(id => query.append('gown_ids[]', String(id)));
                     const response = await fetch(availabilityUrl + '?' + query, { headers: { Accept: 'application/json' } });
                     if (!response.ok) throw new Error('bad response');
                     const result = await response.json();

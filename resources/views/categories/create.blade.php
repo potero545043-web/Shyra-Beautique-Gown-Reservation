@@ -12,7 +12,7 @@
                     <p>Use categories to group similar gown styles for staff and customers.</p>
                 </div>
 
-                <a class="sb-inventory-secondary" href="{{ route('owner.categories.index') }}">
+                <a class="sb-inventory-secondary sb-back-btn" href="{{ route('owner.categories.index') }}">
                     Back to categories
                 </a>
             </div>

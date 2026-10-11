@@ -1,5 +1,5 @@
 <x-app-layout>
-    <div class="sb-page">
+    <div class="sb-page sb-customer-account-page">
         <div class="sb-wrap">
             <div class="sb-heading">
                 <div><span class="sb-kicker">CUSTOMER ACCOUNT · {{ $customer->customer_code }}</span>
@@ -7,7 +7,7 @@
                     <p>{{ $customer->contact_number ?: 'No phone on file' }} ·
                         {{ $customer->email ?: 'No email on file' }}</p>
                 </div>
-                <a class="sb-outline-btn" href="{{ route($base . '.customers') }}">Back to customers</a>
+                <a class="sb-outline-btn sb-back-btn" href="{{ route($base . '.customers') }}">Back to customers</a>
             </div>
 
             @if(session('success'))
@@ -19,7 +19,7 @@
                     <div>
                         <h2>Account summary</h2>
                         <p>Reservation and payment overview</p>
-                    </div><span class="sb-status">{{ ucfirst($customer->status) }}</span>
+                    </div><span class="sb-status sb-status-{{ $customer->status }}">{{ ucfirst($customer->status) }}</span>
                 </div>
                 <div class="sb-booking-info">
                     <div><small>RESERVATIONS</small><b>{{ $reservationCount }}</b></div>
@@ -29,25 +29,27 @@
                     <div><small>OUTSTANDING
                             BALANCE</small><b>₱{{ number_format($outstandingBalance, 2) }}</b></div>
                 </div>
-            </section>
 
-            <section class="sb-panel sb-customer-name-editor">
-                <div class="sb-panel-head">
-                    <div>
-                        <h2>Edit customer name</h2>
-                        <p>Updating this customer record also updates the name shown in all linked reservations and payments.</p>
+                <div class="sb-customer-name-editor">
+                    <div class="sb-panel-head">
+                        <div>
+                            <h2>Edit customer name</h2>
+                            <p>Updating this customer record also updates the name shown in all linked reservations and payments.</p>
+                        </div>
                     </div>
+                    <form method="POST" action="{{ route($base . '.customers.update', $customer) }}" class="sb-customer-name-form">
+                        @csrf
+                        @method('PATCH')
+                        <div class="sb-customer-name-field">
+                            <label for="customer-full-name">Full name</label>
+                            <input id="customer-full-name" name="full_name" value="{{ old('full_name', $customer->full_name) }}" required maxlength="255">
+                        </div>
+                        @error('full_name')
+                            <span class="sb-field-error">{{ $message }}</span>
+                        @enderror
+                        <button class="sb-btn" type="submit">Save name</button>
+                    </form>
                 </div>
-                <form method="POST" action="{{ route($base . '.customers.update', $customer) }}" class="sb-customer-name-form">
-                    @csrf
-                    @method('PATCH')
-                    <label for="customer-full-name">Full name</label>
-                    <input id="customer-full-name" name="full_name" value="{{ old('full_name', $customer->full_name) }}" required maxlength="255">
-                    @error('full_name')
-                        <span class="sb-field-error">{{ $message }}</span>
-                    @enderror
-                    <button class="sb-btn" type="submit">Save name</button>
-                </form>
             </section>
 
             <div class="sb-section-head">
@@ -69,6 +71,9 @@
                         <div><small>ACTUAL
                                 RETURN</small><b>{{ $reservation->gownReturn?->actual_return_date?->format('M d, Y') ?? 'Not returned' }}</b>
                         </div>
+                        @if($reservation->gownReturn)
+                            <div><small>RETURN CONDITION</small><b>{{ ucfirst(str_replace('_', ' ', $reservation->gownReturn->condition_after)) }}</b></div>
+                        @endif
                         <div><small>LATE
                                 DAYS</small><b>{{ $reservation->display_late_days }}{{ $reservation->projected_late_fee > 0 ? ' · projected ₱' . number_format($reservation->projected_late_fee, 2) . ' late fee' : '' }}</b>
                         </div>
@@ -76,6 +81,12 @@
                                 COLLATERAL</small><b>{{ ucfirst(str_replace('_', ' ', $reservation->collateral_status ?? 'not received')) }}</b>
                         </div>
                     </div>
+                    @if($reservation->gownReturn?->notes)
+                        <div class="sb-return-inspection-note">
+                            <b>Return inspection notes</b>
+                            <p>{{ $reservation->gownReturn->notes }}</p>
+                        </div>
+                    @endif
                     @if($reservation->status === 'cancelled')
                         <section class="sb-cancellation-admin-summary">
                             <h3>Cancellation</h3>
@@ -100,31 +111,32 @@
                     @if($reservation->measurements)
                     <p class="sb-form-intro">Measurements: {{ $reservation->measurements }}</p>@endif
 
-                    <h3 class="sb-section-subtitle">Reserved items</h3>
-                    <div class="sb-table-wrap">
-                        <table class="sb-table">
-                            <thead>
-                                <tr>
-                                    <th>GOWN</th>
-                                    <th>QUANTITY</th>
-                                    <th>RENTAL</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @forelse($reservation->items as $item)
-                                    <tr>
-                                        <td><strong>{{ $item->gown->name ?? 'Removed gown' }}</strong><small
-                                                class="sb-cell-sub">{{ $item->gown->gown_code ?? '' }}</small></td>
-                                        <td>{{ $item->quantity }}</td>
-                                        <td>₱{{ number_format($item->rental_price, 2) }}</td>
-                                    </tr>
-                                @empty
-                                    <tr>
-                                        <td colspan="3" class="sb-empty">No reserved items recorded.</td>
-                                    </tr>
-                                @endforelse
-                            </tbody>
-                        </table>
+                    <h3 class="sb-section-subtitle">Reserved gowns</h3>
+                    <div class="sb-customer-item-grid">
+                        @forelse($reservation->items as $item)
+                            <article class="sb-customer-item-card">
+                                <div class="sb-customer-item-photo">
+                                    @if($item->gown)
+                                        <img src="{{ $item->gown->image_url }}" alt="{{ $item->gown->name }}" loading="lazy">
+                                    @else
+                                        <span aria-hidden="true">Gown unavailable</span>
+                                    @endif
+                                </div>
+                                <div class="sb-customer-item-copy">
+                                    <span class="sb-customer-item-category">{{ $item->gown?->category?->name ?? 'Reserved gown' }}</span>
+                                    <h4>{{ $item->gown?->name ?? 'Removed gown' }}</h4>
+                                    <p>{{ $item->gown?->gown_code ?? 'Gown record unavailable' }}
+                                        · Size {{ $item->gown?->size ?: '—' }}
+                                        · {{ ucfirst($item->gown?->color ?: 'Color not specified') }}</p>
+                                    <div class="sb-customer-item-price">
+                                        <span>Quantity <b>{{ $item->quantity }}</b></span>
+                                        <strong>₱{{ number_format((float) $item->rental_price, 2) }}</strong>
+                                    </div>
+                                </div>
+                            </article>
+                        @empty
+                            <div class="sb-empty">No reserved items recorded.</div>
+                        @endforelse
                     </div>
                     @if($reservation->gownPurchases->isNotEmpty())
                         <div class="sb-purchase-history">

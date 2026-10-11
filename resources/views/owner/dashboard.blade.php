@@ -14,44 +14,25 @@
             <!-- HEADER -->
             <!-- ================================================= -->
 
-            <div class="flex flex-col gap-6 md:flex-row md:items-center md:justify-between mb-8">
-
-                <div>
-
-
-
-                    <h1 class="font-display text-3xl md:text-4xl font-semibold text-[#5C1A2B]">
-                        Good day,
-                        {{ explode(' ', auth()->user()->name)[0] }}
-                        <span class="text-[#C9A46A]">✦</span>
-                    </h1>
-
-                    <p class="mt-2 text-sm text-[#766B70]">
-                        Here's what's happening at Shyra Beautique today.
-                    </p>
-
+            <div class="sb-simple-overview-hero sb-customer-hero">
+                <div class="sb-customer-hero-copy">
+                    <span class="sb-kicker">OWNER OVERVIEW</span>
+                    <h1>Good day, <em>{{ explode(' ', auth()->user()->name)[0] }}.</em></h1>
+                    <p>Here's what's happening at Shyra Beautique today.</p>
+                    <div class="sb-customer-hero-actions">
+                        <a href="{{ route('owner.gowns.create') }}" class="sb-btn">
+                            <span aria-hidden="true">+</span> Add New Gown
+                        </a>
+                    </div>
                 </div>
-
-
-                <a href="{{ route('owner.gowns.create') }}"
-                    class="group inline-flex items-center justify-center gap-2 rounded-xl bg-[#5C1A2B] px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-[#5C1A2B]/10 transition duration-300 hover:-translate-y-1 hover:bg-[#6D2439] hover:shadow-xl">
-
-                    <span class="text-lg transition group-hover:rotate-90">
-                        ＋
-                    </span>
-
-                    Add New Gown
-
-                </a>
-
             </div>
             <!--  STATS   -->
 
             <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5 mb-8">
 
                 <!-- Total Gowns -->
-                <div
-                    class="group bg-white rounded-2xl border border-[#DCCBB2] p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+                <a href="{{ route('owner.gowns.index') }}"
+                    class="group block rounded-2xl bg-white border border-[#DCCBB2] p-5 shadow-sm no-underline transition duration-300 hover:-translate-y-1 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5C1A2B]">
                     <div class="flex items-center gap-4">
                         <div
                             class="w-14 h-14 shrink-0 rounded-2xl bg-[#F7EFE4] flex items-center justify-center text-[#5C1A2B] transition duration-300 group-hover:scale-105">
@@ -70,11 +51,11 @@
                             <p class="mt-1 text-xs text-[#A99C8F]">Total inventory</p>
                         </div>
                     </div>
-                </div>
+                </a>
 
                 <!-- Available -->
-                <div
-                    class="group bg-white rounded-2xl border border-[#DCCBB2] p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+                <a href="{{ route('owner.gowns.index', ['status' => 'available']) }}"
+                    class="group block rounded-2xl bg-white border border-[#DCCBB2] p-5 shadow-sm no-underline transition duration-300 hover:-translate-y-1 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5C1A2B]">
                     <div class="flex items-center gap-4">
                         <div
                             class="w-14 h-14 shrink-0 rounded-2xl bg-[#F2E6D5] flex items-center justify-center text-[#9A7A42] transition duration-300 group-hover:scale-105">
@@ -90,11 +71,11 @@
                             <p class="mt-1 text-xs text-[#A99C8F]">Currently available</p>
                         </div>
                     </div>
-                </div>
+                </a>
 
                 <!-- Pending -->
-                <div
-                    class="group bg-white rounded-2xl border border-[#DCCBB2] p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+                <a href="{{ route('owner.reservations', ['status' => 'pending']) }}"
+                    class="group block rounded-2xl bg-white border border-[#DCCBB2] p-5 shadow-sm no-underline transition duration-300 hover:-translate-y-1 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5C1A2B]">
                     <div class="flex items-center gap-4">
                         <div
                             class="w-14 h-14 shrink-0 rounded-2xl bg-[#ECDCC5] flex items-center justify-center text-[#B77E45] transition duration-300 group-hover:scale-105">
@@ -111,11 +92,11 @@
                             <p class="mt-1 text-xs text-[#A99C8F]">Need your attention</p>
                         </div>
                     </div>
-                </div>
+                </a>
 
                 <!-- Active Rentals -->
-                <div
-                    class="group bg-white rounded-2xl border border-[#DCCBB2] p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+                <a href="{{ route('owner.rentals') }}"
+                    class="group block rounded-2xl bg-white border border-[#DCCBB2] p-5 shadow-sm no-underline transition duration-300 hover:-translate-y-1 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5C1A2B]">
                     <div class="flex items-center gap-4">
                         <div
                             class="w-14 h-14 shrink-0 rounded-2xl bg-[#F7EFE4] flex items-center justify-center text-[#6D2538] transition duration-300 group-hover:scale-105">
@@ -132,11 +113,11 @@
                             <p class="mt-1 text-xs text-[#A99C8F]">{{ $confirmed }} confirmed bookings</p>
                         </div>
                     </div>
-                </div>
+                </a>
 
                 <!-- Customers -->
-                <div
-                    class="group bg-white rounded-2xl border border-[#DCCBB2] p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg">
+                <a href="{{ route('owner.customers') }}"
+                    class="group block rounded-2xl bg-white border border-[#DCCBB2] p-5 shadow-sm no-underline transition duration-300 hover:-translate-y-1 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5C1A2B]">
                     <div class="flex items-center gap-4">
                         <div
                             class="w-14 h-14 shrink-0 rounded-2xl bg-[#F2E6D5] flex items-center justify-center text-[#7A2940] transition duration-300 group-hover:scale-105">
@@ -155,11 +136,11 @@
                             <p class="mt-1 text-xs text-[#A99C8F]">Registered customers</p>
                         </div>
                     </div>
-                </div>
+                </a>
 
                 <!-- Payments -->
-                <div
-                    class="group bg-[#5C1A2B] rounded-2xl p-5 shadow-lg shadow-[#5C1A2B]/10 transition duration-300 hover:-translate-y-1 hover:shadow-xl">
+                <a href="{{ route('owner.payments') }}"
+                    class="group block rounded-2xl bg-[#5C1A2B] p-5 shadow-lg shadow-[#5C1A2B]/10 no-underline transition duration-300 hover:-translate-y-1 hover:shadow-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#C9A46A]">
                     <div class="flex items-center gap-4">
                         <div
                             class="w-14 h-14 shrink-0 rounded-2xl bg-white/10 flex items-center justify-center text-[#E5CFA5] transition duration-300 group-hover:scale-105">
@@ -176,7 +157,7 @@
                             <p class="mt-1 text-xs text-white/50">All recorded payments</p>
                         </div>
                     </div>
-                </div>
+                </a>
 
             </div>
 
@@ -268,57 +249,55 @@
 
                                 @forelse($reservations as $reservation)
 
-                                    <tr class="hover:bg-[#FCF8FA] transition">
+                                    <tr class="sb-clickable-row hover:bg-[#FCF8FA] transition"
+                                        data-href="{{ route('owner.reservations.show', $reservation) }}"
+                                        tabindex="0" role="link"
+                                        aria-label="View reservation {{ $reservation->reservation_code }}">
 
                                         <td class="px-6 py-4">
 
-                                            <a href="{{ route('owner.payments', ['q' => $reservation->reservation_code]) }}"
-                                                class="font-semibold text-[#5C1A2B] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5C1A2B]"
-                                                aria-label="View payments for reservation {{ $reservation->reservation_code }}">
+                                            <span class="font-semibold text-[#5C1A2B]">
                                                 {{ $reservation->reservation_code }}
-                                            </a>
+                                            </span>
 
                                         </td>
 
 
                                         <td class="px-6 py-4 text-[#5F555A]">
 
-                                            <a href="{{ route('owner.payments', ['q' => $reservation->reservation_code]) }}"
-                                                class="hover:underline">
+                                            <span>
                                                 {{ $reservation->customer->full_name ?? 'Customer' }}
-                                            </a>
+                                            </span>
 
                                         </td>
 
 
                                         <td class="px-6 py-4 text-[#6F6662] whitespace-nowrap">
 
-                                            <a href="{{ route('owner.payments', ['q' => $reservation->reservation_code]) }}"
-                                                class="hover:underline">
+                                            <span>
                                                 {{ $reservation->pickup_date?->format('M d, Y') }}
-                                            </a>
+                                            </span>
 
                                         </td>
 
 
                                         <td class="px-6 py-4">
 
-                                            <a href="{{ route('owner.payments', ['q' => $reservation->reservation_code]) }}"
+                                            <span
                                                 class="inline-flex px-2.5 py-1 rounded-full bg-[#F8EEF2] text-[#5C1A2B] text-xs font-medium capitalize sb-dash-status sb-dash-status-{{ $reservation->status }}">
 
                                                 {{ str_replace('_', ' ', $reservation->status) }}
 
-                                            </a>
+                                            </span>
 
                                         </td>
 
 
                                         <td class="px-6 py-4 text-right font-semibold text-[#5C1A2B] whitespace-nowrap">
 
-                                            <a href="{{ route('owner.payments', ['q' => $reservation->reservation_code]) }}"
-                                                class="hover:underline">
+                                            <span>
                                                 ₱{{ number_format($reservation->grand_total, 0) }}
-                                            </a>
+                                            </span>
 
                                         </td>
 
@@ -399,7 +378,9 @@
 
                         @forelse($recentGowns as $gown)
 
-                            <div class="group flex items-center gap-4 py-4 border-b border-[#F3E9ED] last:border-0">
+                            <a href="{{ route('owner.gowns.show', $gown) }}"
+                                aria-label="View {{ $gown->name }}"
+                                class="group flex items-center gap-4 py-4 border-b border-[#F3E9ED] last:border-0 no-underline transition hover:bg-[#FCF8FA] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5C1A2B]">
 
                                 <!-- Gown Icon -->
                                 <!-- Gown Image -->
@@ -412,7 +393,6 @@
                                     @else
                                         <span>✿</span>
                                     @endif
-
                                 </div>
 
 
@@ -445,7 +425,7 @@
 
                                 </div>
 
-                            </div>
+                            </a>
 
                         @empty
 

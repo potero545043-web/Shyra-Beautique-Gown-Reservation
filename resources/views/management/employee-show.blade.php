@@ -1,6 +1,6 @@
 <x-app-layout>
     <div class="sb-page"><div class="sb-wrap">
-        <div class="sb-heading"><div><span class="sb-kicker">EMPLOYEE WORK LOG</span><h1>{{ $employee->full_name }}<em>.</em></h1><p>{{ $employee->position }} · {{ $employee->employee_code }} · {{ ucfirst($employee->status) }}</p></div><a class="sb-outline-btn" href="{{ route('owner.employees') }}">Back to employees</a></div>
+        <div class="sb-heading"><div><span class="sb-kicker">EMPLOYEE WORK LOG</span><h1>{{ $employee->full_name }}<em>.</em></h1><p>{{ $employee->position }} · {{ $employee->employee_code }} · {{ ucfirst($employee->status) }}</p></div><a class="sb-outline-btn sb-back-btn" href="{{ route('owner.employees') }}">Back to employees</a></div>
         <div class="sb-columns">
             <section class="sb-panel">
                 <div class="sb-panel-head"><div><h2>Employee details</h2><p>Account and employment information</p></div></div>

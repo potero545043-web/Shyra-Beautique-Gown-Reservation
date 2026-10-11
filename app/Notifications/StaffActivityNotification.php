@@ -27,12 +27,17 @@ class StaffActivityNotification extends Notification
 
     public function toArray(object $notifiable): array
     {
-        $reservation = $this->reservation?->loadMissing(['customer', 'items.gown']);
-        $gownName = $reservation?->items->first()?->gown?->name ?? $this->gown?->name;
+        $reservation = $this->reservation?->loadMissing(['customer', 'items.gown', 'gownReturn']);
+        $gownName = $reservation?->items
+            ->map(fn ($item) => $item->gown?->name)
+            ->filter()
+            ->unique()
+            ->join(', ') ?: $this->gown?->name;
         $reservationCode = $reservation?->reservation_code;
         $date = $reservation?->pickup_date?->format('F j');
         $details = $reservationCode ? "Reservation #{$reservationCode}" : 'A reservation';
         $gownDetails = $gownName ? " for the {$gownName}" : '';
+        $customerName = $reservation?->customer?->full_name ?? 'A customer';
 
         [$title, $message] = match ($this->event) {
             'new_reservation' => [
@@ -60,8 +65,10 @@ class StaffActivityNotification extends Notification
                 ($reservation?->customer?->full_name ?? 'A customer') . " cancelled {$details}{$gownDetails}.",
             ],
             'gown_returned' => [
-                'Gown returned',
-                "{$details}{$gownDetails} has been returned and needs inspection.",
+                'Return inspection recorded',
+                "{$customerName} returned{$gownDetails} ({$reservationCode}) on "
+                    .($reservation?->gownReturn?->actual_return_date?->format('F j, Y') ?? 'today')
+                    .' in '.ucfirst(str_replace('_', ' ', $reservation?->gownReturn?->condition_after ?? 'unknown')).' condition.',
             ],
             'employee_activity' => [
                 'Employee activity needs attention',

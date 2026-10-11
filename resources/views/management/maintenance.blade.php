@@ -73,7 +73,19 @@
 
                                 @forelse($maintenanceRecords as $record)
 
-                                    <tr>
+                                    <tr class="sb-record-row" tabindex="0" aria-haspopup="dialog"
+                                        aria-label="View maintenance job for {{ $record->gown->name ?? 'removed gown' }}"
+                                        data-record-title="{{ $record->gown->name ?? 'Maintenance job' }}"
+                                        data-record-image="{{ $record->gown?->image_url ?? '' }}"
+                                        data-record-details="{{ json_encode([
+                                            'Gown code' => $record->gown->gown_code ?? 'Removed gown',
+                                            'Work type' => ucfirst($record->maintenance_type),
+                                            'Description' => $record->description ?: 'No description recorded',
+                                            'Notes' => $record->notes ?: 'No additional notes',
+                                            'Date' => $record->maintenance_date?->format('M d, Y') ?? '—',
+                                            'Cost' => '₱' . number_format($record->cost, 2),
+                                            'Status' => $record->status === 'pending' ? 'In progress' : ucfirst($record->status),
+                                        ], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP) }}">
 
                                         {{-- GOWN (image + name) --}}
                                         <td data-label="Gown">
@@ -135,15 +147,28 @@
 
                                             @if($record->status === 'pending')
 
-                                                <details class="sb-employee-edit sb-maintenance-complete">
+                                                <button class="sb-action-success sb-maintenance-complete-trigger" type="button"
+                                                    data-open-maintenance-dialog="#complete-maintenance-{{ $record->id }}">
+                                                    Complete job
+                                                </button>
 
-                                                    <summary>Complete job</summary>
+                                                <dialog class="sb-maintenance-complete-dialog"
+                                                    id="complete-maintenance-{{ $record->id }}"
+                                                    aria-labelledby="complete-maintenance-title-{{ $record->id }}">
+                                                    <div class="sb-maintenance-complete-head">
+                                                        <div>
+                                                            <span class="sb-kicker">COLLECTION CARE</span>
+                                                            <h2 id="complete-maintenance-title-{{ $record->id }}">Complete maintenance job</h2>
+                                                            <p>{{ $record->gown->name ?? 'Gown' }} · {{ ucfirst($record->maintenance_type) }}</p>
+                                                        </div>
+                                                        <button class="sb-maintenance-dialog-close" type="button"
+                                                            aria-label="Close dialog" data-close-maintenance-dialog>&times;</button>
+                                                    </div>
 
                                                     <form method="POST"
-                                                        action="{{ route($base . '.maintenance.complete', $record) }}">
-
+                                                        action="{{ route($base . '.maintenance.complete', $record) }}"
+                                                        class="sb-maintenance-complete-form">
                                                         @csrf
-
                                                         <label>Final condition
                                                             <select name="condition" required>
                                                                 @foreach(['excellent', 'good', 'fair', 'damaged'] as $condition)
@@ -160,11 +185,9 @@
                                                                 placeholder="Optional repair outcome">
                                                         </label>
 
-                                                        <button class="sb-small-btn">Close maintenance job</button>
-
+                                                        <button class="sb-action-success" type="submit">Close maintenance job</button>
                                                     </form>
-
-                                                </details>
+                                                </dialog>
 
                                             @else
 
@@ -195,6 +218,7 @@
 
                     </div>
 
+                    @include('components.record-details-dialog')
 
                     {{-- PAGINATION --}}
                     @include('components.table-pagination', ['paginator' => $maintenanceRecords, 'itemLabel' => 'jobs'])
@@ -205,7 +229,7 @@
 
 
             {{-- LOG MAINTENANCE DRAWER --}}
-            <dialog class="sb-side-drawer" id="maintenance-create-dialog" aria-labelledby="maintenance-create-title"
+            <dialog class="sb-side-drawer sb-inventory-modal" id="maintenance-create-dialog" aria-labelledby="maintenance-create-title"
                 onclick="if (event.target === this) this.close()">
 
                 <div class="sb-side-drawer-head">
@@ -237,18 +261,10 @@
                         <div class="sb-form-errors">{{ $errors->first() }}</div>
                     @endif
 
-                    <label>Gown
-                        <select name="gown_id" required>
-                            <option value="">Choose a gown</option>
-                            @foreach($gowns as $gown)
-                                <option value="{{ $gown->id }}" @selected(old('gown_id') == $gown->id)>
-                                    {{ $gown->gown_code }} · {{ $gown->name }}
-                                    ({{ ucfirst(str_replace('_', ' ', $gown->status)) }})
-                                </option>
-                            @endforeach
-                        </select>
-                        <x-input-error :messages="$errors->get('gown_id')" />
-                    </label>
+                    <x-gown-picker
+                        name="gown_id"
+                        :endpoint="route($base . '.maintenance.gowns')"
+                    />
 
                     <label>Work type
                         <input name="maintenance_type" value="{{ old('maintenance_type') }}"
@@ -292,7 +308,6 @@
             </dialog>
 
 
-            {{-- REOPEN DRAWER AFTER VALIDATION ERROR --}}
             @if(old('_inventory_drawer') === 'maintenance')
                 <script>
                     document.getElementById('maintenance-create-dialog').showModal();

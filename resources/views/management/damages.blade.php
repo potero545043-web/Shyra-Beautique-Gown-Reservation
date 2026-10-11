@@ -8,17 +8,19 @@
                 <div>
                     <span class="sb-kicker">INVENTORY · CARE LOG</span>
 
-                    <h1>Damage <em>reports.</em></h1>
+                    <h1>{{ $archived ? 'Archived' : 'Damage' }} <em>reports.</em></h1>
 
-                    <p>Track damage, repair estimates, and gown condition in one place.</p>
+                    <p>{{ $archived ? 'Review and restore damage reports removed from the active log.' : 'Track damage, repair estimates, and gown condition in one place.' }}</p>
                 </div>
 
-                @if($base === 'owner')
+                @if($base === 'owner' && !$archived)
                     <button class="sb-inventory-primary sb-inventory-filter-add" type="button"
                         onclick="document.getElementById('damage-create-dialog').showModal()">
                         <span aria-hidden="true">＋</span>
                         Report damage
                     </button>
+                @elseif($archived)
+                    <a class="sb-inventory-secondary sb-back-btn" href="{{ route('owner.damages') }}">Back to damage log</a>
                 @endif
             </div>
 
@@ -63,9 +65,9 @@
                     <div class="sb-inventory-toolbar">
 
                         <div>
-                            <span class="sb-kicker">DAMAGE LOG</span>
+                            <span class="sb-kicker">{{ $archived ? 'DAMAGE ARCHIVE' : 'DAMAGE LOG' }}</span>
 
-                            <h2>Recorded damage</h2>
+                            <h2>{{ $archived ? 'Archived damage' : 'Recorded damage' }}</h2>
 
                             <p>
                                 {{ $totalCount }}
@@ -87,7 +89,7 @@
                             </select>
                             <button class="sb-btn" type="submit">Filter</button>
                             @if(request()->filled('q') || request()->filled('severity'))
-                                <a class="sb-filter-clear" href="{{ route($base . '.damages') }}">Clear</a>
+                                <a class="sb-filter-clear" href="{{ route($archived ? 'owner.damages.archive' : $base . '.damages') }}">Clear</a>
                             @endif
                         </form>
 
@@ -107,7 +109,7 @@
                                     <th>Estimated cost</th>
                                     <th>Final cost</th>
                                     <th>Severity</th>
-                                    <th>Discovered</th>
+                                    <th>{{ $archived ? 'Archived' : 'Discovered' }}</th>
                                     <th>Evidence</th>
                                     <th>Actions</th>
                                 </tr>
@@ -119,14 +121,30 @@
 
                                     @php
                                         $severityClass = match ($damage->severity) {
-                                            'minor' => 'is-available',
-                                            'moderate' => 'is-reserved',
-                                            'major', 'severe' => 'is-damaged',
-                                            default => 'is-disabled',
+                                            'minor' => 'is-info',
+                                            'moderate' => 'is-warning',
+                                            'major', 'severe' => 'is-danger',
+                                            default => 'is-neutral',
                                         };
+                                        $finalCost = $damage->final_repair_cost
+                                            ?? ($damage->repair_cost > 0 ? $damage->repair_cost : null);
                                     @endphp
 
-                                    <tr>
+                                    <tr class="sb-record-row" tabindex="0" aria-haspopup="dialog"
+                                        aria-label="View damage report for {{ $damage->gown->name ?? 'removed gown' }}"
+                                        data-record-title="{{ $damage->gown->name ?? 'Damage report' }}"
+                                        data-record-image="{{ $damage->gown?->image_url ?? '' }}"
+                                        data-record-details="{{ json_encode([
+                                            'Gown code' => $damage->gown->gown_code ?? 'Removed gown',
+                                            'Damage type' => ucfirst($damage->damage_type),
+                                            'Description' => $damage->description ?: 'No description recorded',
+                                            'Reservation' => ($damage->reservation ?? $damage->gownReturn?->reservation)?->reservation_code ?? 'Not linked',
+                                            'Estimated cost' => $damage->estimated_repair_cost === null ? 'Not estimated' : '₱' . number_format($damage->estimated_repair_cost, 2),
+                                            'Final cost' => $finalCost === null ? 'Not recorded' : '₱' . number_format($finalCost, 2),
+                                            'Severity' => ucfirst($damage->severity),
+                                            'Discovered' => $damage->discovered_at?->format('M d, Y') ?? $damage->created_at?->format('M d, Y') ?? '—',
+                                            'Archived' => $damage->archived_at?->format('M d, Y g:i A') ?? '—',
+                                        ], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP) }}">
 
                                         {{-- GOWN --}}
                                         <td data-label="Gown">
@@ -177,13 +195,9 @@
 
                                         {{-- FINAL REPAIR COST --}}
                                         <td data-label="Final cost">
-                                            @php
-                                                $finalCost = $damage->final_repair_cost
-                                                    ?? ($damage->repair_cost > 0 ? $damage->repair_cost : null);
-                                            @endphp
                                             @if($finalCost !== null)
                                                 <strong class="sb-rental-price">&#8369;{{ number_format($finalCost, 2) }}</strong>
-                                            @else
+                                            @elseif(!$archived)
                                                 <details class="sb-damage-final-cost">
                                                     <summary>Record final cost</summary>
                                                     <form method="POST"
@@ -211,8 +225,8 @@
 
 
                                         {{-- DATE DISCOVERED --}}
-                                        <td data-label="Discovered">
-                                            {{ $damage->discovered_at?->format('M d, Y') ?? $damage->created_at?->format('M d, Y') }}
+                                        <td data-label="{{ $archived ? 'Archived' : 'Discovered' }}">
+                                            {{ $archived ? $damage->archived_at?->format('M d, Y') : ($damage->discovered_at?->format('M d, Y') ?? $damage->created_at?->format('M d, Y')) }}
                                         </td>
 
                                         {{-- PRIVATE PHOTO EVIDENCE --}}
@@ -235,12 +249,29 @@
                                         <td data-label="Actions">
                                             @if($base === 'owner')
                                                 <div class="sb-inventory-actions">
-                                                    <form method="POST" action="{{ route('owner.damages.destroy', $damage) }}"
-                                                        onsubmit="return confirm('Remove this damage report?')">
-                                                        @csrf
-                                                        @method('DELETE')
-                                                        <button class="sb-retire" type="submit">Remove</button>
-                                                    </form>
+                                                    @if($archived)
+                                                        <form method="POST" action="{{ route('owner.damages.restore', $damage) }}"
+                                                            data-confirm-title="Restore damage report"
+                                                            data-confirm-accent="this report?"
+                                                            data-confirm-message="Restore this report to the active damage log?"
+                                                            data-confirm-yes="Yes, restore"
+                                                            data-confirm-no="Keep archived">
+                                                            @csrf
+                                                            @method('PATCH')
+                                                            <button class="sb-action-restore sb-action-success" type="submit">Restore</button>
+                                                        </form>
+                                                    @else
+                                                        <form method="POST" action="{{ route('owner.damages.archive.store', $damage) }}"
+                                                            data-confirm-title="Archive damage report"
+                                                            data-confirm-accent="this report?"
+                                                            data-confirm-message="This report will leave the active log but can be restored later."
+                                                            data-confirm-yes="Yes, archive"
+                                                            data-confirm-no="Keep active">
+                                                            @csrf
+                                                            @method('PATCH')
+                                                            <button class="sb-action-warning" type="submit">Archive</button>
+                                                        </form>
+                                                    @endif
                                                 </div>
                                             @else
                                                 <span class="sb-cell-sub">View only</span>
@@ -254,8 +285,8 @@
                                     <tr>
                                         <td colspan="9">
                                             <div class="sb-inventory-empty">
-                                                <b>No damage recorded</b>
-                                                <p>Damage flagged during a gown return will appear here for review.</p>
+                                                <b>{{ $archived ? 'No archived damage reports' : 'No damage recorded' }}</b>
+                                                <p>{{ $archived ? 'Damage reports you archive will appear here and can be restored.' : 'Damage flagged during a gown return will appear here for review.' }}</p>
                                             </div>
                                         </td>
                                     </tr>
@@ -268,6 +299,7 @@
 
                     </div>
 
+                    @include('components.record-details-dialog')
 
                     {{-- PAGINATION --}}
                     @include('components.table-pagination', ['paginator' => $damages, 'itemLabel' => 'reports'])
@@ -276,8 +308,8 @@
 
             </section>
 
-            @if($base === 'owner')
-                <dialog class="sb-side-drawer" id="damage-create-dialog"
+            @if($base === 'owner' && !$archived)
+                <dialog class="sb-side-drawer sb-inventory-modal" id="damage-create-dialog"
                     aria-labelledby="damage-create-title"
                     onclick="if (event.target === this) this.close()">
                     <div class="sb-side-drawer-head">
@@ -299,17 +331,11 @@
                             <div class="sb-form-errors">{{ $errors->first() }}</div>
                         @endif
 
-                        <label>Gown
-                            <select name="gown_id" required>
-                                <option value="">Select a gown</option>
-                                @foreach($gowns as $gown)
-                                    <option value="{{ $gown->id }}" @selected(old('gown_id') == $gown->id)>
-                                        {{ $gown->gown_code }} · {{ $gown->name }} ({{ str_replace('_', ' ', $gown->status) }})
-                                    </option>
-                                @endforeach
-                            </select>
-                            <x-input-error :messages="$errors->get('gown_id')" />
-                        </label>
+                        <x-gown-picker
+                            name="gown_id"
+                            :endpoint="route($base . '.damages.gowns')"
+                            placeholder="Select a gown"
+                        />
 
                         <label>Rental reference <span class="sb-cell-sub">(optional)</span>
                             <select name="reservation_id">

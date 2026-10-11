@@ -156,7 +156,6 @@
             pendingForm = null;
             if (form) {
                 form.dataset.confirmed = 'true';
-                window.__sbMarkInternalNavigation?.();
                 form.requestSubmit();
             }
         });

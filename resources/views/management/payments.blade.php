@@ -92,7 +92,6 @@
                                 <th>Amount</th>
                                 <th>Date</th>
                                 <th>Status</th>
-                                <th>Action</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -106,7 +105,8 @@
                                     $canReview = $payment->status === 'pending'
                                         && !in_array($payment->reservation?->status, ['cancelled', 'rejected', 'completed'], true);
                                 @endphp
-                                <tr>
+                                <tr class="sb-payment-row" tabindex="0"
+                                    aria-label="View payment {{ $payment->payment_reference }}">
                                     <td><button type="button" class="sb-payment-id-button" data-payment-open
                                             data-reference="{{ $payment->payment_reference }}"
                                             data-customer="{{ $payment->customer->full_name ?? 'Customer' }}"
@@ -129,22 +129,10 @@
                                     <td><span
                                             class="sb-payment-status is-{{ $payment->status }}">{{ $paymentStatusLabel }}</span>
                                     </td>
-                                    <td><button class="sb-payment-open-button" type="button" data-payment-open
-                                            data-reference="{{ $payment->payment_reference }}"
-                                            data-customer="{{ $payment->customer->full_name ?? 'Customer' }}"
-                                            data-reservation="{{ $payment->reservation->reservation_code ?? 'Reservation' }}"
-                                            data-type="{{ ucfirst(str_replace('_', ' ', $payment->payment_type)) }}"
-                                            data-method="{{ ucfirst($payment->payment_method) }}"
-                                            data-amount="{{ number_format($payment->amount, 2, '.', '') }}"
-                                            data-date="{{ $payment->created_at?->format('F j, Y, g:i A') }}"
-                                            data-status="{{ $paymentStatusLabel }}"
-                                            data-proof="{{ $payment->proof_of_payment ? route('payments.proof', $payment) : '' }}"
-                                            data-review="{{ $canReview ? route($base . '.payments.update', $payment) : '' }}"
-                                            data-remarks="{{ $payment->remarks }}">Details</button></td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="8" class="sb-payment-table-empty">No payments match these filters.</td>
+                                    <td colspan="7" class="sb-payment-table-empty">No payments match these filters.</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -215,7 +203,8 @@
                                 @foreach($openReservations as $reservation)
                                     <option value="{{ $reservation->id }}"
                                         data-action="{{ route($base . '.payments.store', $reservation) }}"
-                                        data-balance="{{ number_format($reservation->balance, 2, '.', '') }}">
+                                        data-balance="{{ number_format($reservation->balance, 2, '.', '') }}"
+                                        @selected((string) request('reservation_id') === (string) $reservation->id)>
                                         {{ $reservation->reservation_code }}·
                                         {{ $reservation->customer->full_name ?? 'Customer' }}·
                                         ₱{{ number_format($reservation->balance, 2) }} due</option>
@@ -241,8 +230,8 @@
                 (() => {
                     const paymentDialog = document.querySelector('[data-payment-dialog]');
                     const detailForm = paymentDialog.querySelector('[data-payment-review-form]');
-                    document.querySelectorAll('[data-payment-open]').forEach(button => button.addEventListener('click', () => {
-                        const data = button.dataset;
+                    const openPayment = trigger => {
+                        const data = trigger.dataset;
                         paymentDialog.querySelector('[data-payment-detail-reference]').textContent = data.reference;
                         paymentDialog.querySelector('[data-payment-detail-customer]').textContent = data.customer;
                         paymentDialog.querySelector('[data-payment-detail-reservation]').textContent = data.reservation;
@@ -264,7 +253,21 @@
                         detailForm.action = data.review || '';
                         detailForm.querySelector('[name="remarks"]').value = '';
                         paymentDialog.showModal();
-                    }));
+                    };
+                    document.querySelectorAll('.sb-payment-row').forEach(row => {
+                        const trigger = row.querySelector('[data-payment-open]');
+                        row.addEventListener('click', event => {
+                            if (event.target.closest('button, a, input, select, textarea, form')
+                                && !event.target.closest('[data-payment-open]')) return;
+                            openPayment(trigger);
+                        });
+                        row.addEventListener('keydown', event => {
+                            if ((event.key === 'Enter' || event.key === ' ') && event.target === row) {
+                                event.preventDefault();
+                                openPayment(trigger);
+                            }
+                        });
+                    });
                     paymentDialog.querySelectorAll('[data-close-payment]').forEach(button => button.addEventListener('click', () => paymentDialog.close()));
 
                     const recordDialog = document.querySelector('[data-record-payment-dialog]');
@@ -285,6 +288,10 @@
                     });
                     updateRecordAction();
                     document.querySelector('[data-open-record-payment]').addEventListener('click', () => recordDialog.showModal());
+                    const requestedReservationId = new URLSearchParams(window.location.search).get('reservation_id');
+                    if (requestedReservationId && reservationSelect?.value === requestedReservationId) {
+                        recordDialog.showModal();
+                    }
                     recordDialog.querySelectorAll('[data-close-record-payment]').forEach(button => button.addEventListener('click', () => recordDialog.close()));
                     [paymentDialog, recordDialog].forEach(dialog => dialog.addEventListener('click', event => {
                         if (event.target === dialog) dialog.close();

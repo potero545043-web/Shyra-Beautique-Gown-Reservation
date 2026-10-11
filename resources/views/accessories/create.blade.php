@@ -12,7 +12,7 @@
                     <p>Track each styling item and the gowns it accompanies.</p>
                 </div>
 
-                <a class="sb-inventory-secondary" href="{{ route('owner.accessories.index') }}">
+                <a class="sb-inventory-secondary sb-back-btn" href="{{ route('owner.accessories.index') }}">
                     Back to accessories
                 </a>
             </div>

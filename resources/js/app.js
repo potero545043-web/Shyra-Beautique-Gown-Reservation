@@ -7,23 +7,144 @@ window.Alpine = Alpine;
 Alpine.start();
 
 document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('dialog.sb-inventory-modal').forEach(dialog => {
+        dialog.addEventListener('close', () => {
+            dialog.querySelector('form')?.reset();
+        });
+    });
+
     const logoutUrl = document.querySelector('meta[name="auth-logout-url"]')?.content;
     const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content;
-    let navigatingWithinSite = false;
-    let skipNextBeforeUnload = false;
+
+    const openRecordDialog = row => {
+        const dialog = document.querySelector('[data-record-dialog]');
+        const content = dialog?.querySelector('[data-record-dialog-content]');
+        if (!(dialog instanceof HTMLDialogElement) || !content) return;
+
+        let details;
+        try {
+            details = JSON.parse(row.dataset.recordDetails || '{}');
+        } catch (error) {
+            console.error('Unable to read record details.', error);
+            return;
+        }
+
+        content.replaceChildren();
+
+        const heading = document.createElement('div');
+        heading.className = 'sb-record-detail-heading';
+        if (row.dataset.recordImage) {
+            const image = document.createElement('img');
+            image.src = row.dataset.recordImage;
+            image.alt = '';
+            heading.append(image);
+        }
+
+        const title = document.createElement('div');
+        const kicker = document.createElement('span');
+        kicker.className = 'sb-kicker';
+        kicker.textContent = 'RECORD DETAILS';
+        const name = document.createElement('h2');
+        name.textContent = row.dataset.recordTitle || 'Record';
+        title.append(kicker, name);
+        heading.append(title);
+        content.append(heading);
+
+        const list = document.createElement('dl');
+        list.className = 'sb-record-detail-list';
+        Object.entries(details).forEach(([label, value]) => {
+            const item = document.createElement('div');
+            const term = document.createElement('dt');
+            term.textContent = label;
+            const description = document.createElement('dd');
+            description.textContent = value || '—';
+            item.append(term, description);
+            list.append(item);
+        });
+        content.append(list);
+        dialog.showModal();
+    };
+
+    const recordDialog = document.querySelector('[data-record-dialog]');
+    recordDialog?.addEventListener('click', event => {
+        if (event.target === recordDialog) recordDialog.close();
+    });
+
+    document.addEventListener('click', event => {
+        if (!(event.target instanceof Element)) return;
+
+        const openButton = event.target.closest('[data-open-maintenance-dialog]');
+        if (openButton) {
+            const dialog = document.querySelector(openButton.dataset.openMaintenanceDialog);
+            if (dialog instanceof HTMLDialogElement) dialog.showModal();
+            return;
+        }
+
+        const closeButton = event.target.closest('[data-close-maintenance-dialog]');
+        if (closeButton) {
+            closeButton.closest('dialog')?.close();
+            return;
+        }
+
+        if (event.target instanceof HTMLDialogElement
+            && event.target.matches('.sb-maintenance-complete-dialog')) {
+            event.target.close();
+        }
+    });
+
+    document.addEventListener('click', event => {
+        const openRentalActions = document.querySelectorAll(
+            '.sb-rentals-page .sb-ops-table--rentals .sb-row-actions[open]',
+        );
+        if (openRentalActions.length === 0) return;
+
+        const closeButton = event.target instanceof Element
+            ? event.target.closest('.sb-row-actions-close')
+            : null;
+        if (closeButton) {
+            closeButton.closest('.sb-row-actions').open = false;
+            return;
+        }
+
+        if (!(event.target instanceof Element)
+            || !event.target.closest('.sb-rentals-page .sb-ops-table--rentals .sb-row-actions')) {
+            openRentalActions.forEach(details => { details.open = false; });
+        }
+    });
+
+    document.addEventListener('keydown', event => {
+        if (event.key !== 'Escape') return;
+        document.querySelectorAll(
+            '.sb-rentals-page .sb-ops-table--rentals .sb-row-actions[open]',
+        ).forEach(details => { details.open = false; });
+    });
+
+    document.addEventListener('click', event => {
+        if (!(event.target instanceof Element)
+            || event.button !== 0
+            || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+            return;
+        }
+
+        const row = event.target.closest('tr[data-record-details]');
+        if (row && !event.target.closest('a, button, details, form, input, select, summary, textarea')) {
+            openRecordDialog(row);
+            return;
+        }
+
+        const paymentRow = event.target.closest('tr.sb-payment-row');
+        if (paymentRow && !event.target.closest('a, button, details, form, input, select, summary, textarea')) {
+            paymentRow.querySelector('[data-payment-open]')?.click();
+        }
+    });
 
     if (logoutUrl && csrfToken) {
-        window.__sbMarkInternalNavigation = () => {
-            navigatingWithinSite = true;
-        };
-
-        const interactiveSelector = 'a, button, details, form, input, select, summary, textarea';
+        const interactiveSelector = 'a, button, details, form, input, select, summary, textarea, [data-row-nav-ignore]';
 
         const navigateToRow = row => {
             const destination = new URL(row.dataset.href, window.location.href);
             if (destination.origin !== window.location.origin) return;
 
-            navigatingWithinSite = true;
             window.location.assign(destination.href);
         };
 
@@ -42,13 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const destination = new URL(link.href, window.location.href);
             if (!['http:', 'https:'].includes(destination.protocol)
-                || destination.origin === window.location.origin) {
-                if (destination.origin === window.location.origin
-                    && link.target !== '_blank') {
-                    navigatingWithinSite = true;
-                }
-                return;
-            }
+                || destination.origin === window.location.origin) return;
 
             event.preventDefault();
 
@@ -73,10 +188,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (newTab) {
                     newTab.location.href = destination.href;
-                    navigatingWithinSite = true;
                     window.location.replace('/login');
                 } else {
-                    skipNextBeforeUnload = true;
                     window.location.assign(destination.href);
                 }
             } catch (error) {
@@ -94,39 +207,24 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const row = event.target.closest('tr.sb-gown-row-link[data-href], tr.sb-clickable-row[data-href]');
-            if (!row) return;
+            if (!row) {
+                const recordRow = event.target.closest('tr[data-record-details]');
+                if (recordRow) {
+                    event.preventDefault();
+                    openRecordDialog(recordRow);
+                }
+                const paymentRow = event.target.closest('tr.sb-payment-row');
+                if (paymentRow) {
+                    event.preventDefault();
+                    paymentRow.querySelector('[data-payment-open]')?.click();
+                }
+                return;
+            }
 
             event.preventDefault();
             navigateToRow(row);
         }, true);
 
-        document.addEventListener('submit', event => {
-            if (!(event.target instanceof HTMLFormElement)) return;
-
-            const destination = new URL(event.target.action, window.location.href);
-            if (destination.origin === window.location.origin) {
-                window.__sbMarkInternalNavigation();
-            }
-        }, true);
-
-        window.addEventListener('beforeunload', event => {
-            if (navigatingWithinSite || skipNextBeforeUnload) return;
-
-            event.preventDefault();
-            event.returnValue = '';
-        });
-
-        window.addEventListener('pagehide', () => {
-            if (navigatingWithinSite || !navigator.sendBeacon) return;
-
-            const payload = new FormData();
-            payload.append('_token', csrfToken);
-            navigator.sendBeacon(logoutUrl, payload);
-        });
-
-        window.addEventListener('pageshow', event => {
-            if (event.persisted) window.location.reload();
-        });
     }
 
     document.querySelectorAll('input[type="file"]').forEach(input => {

@@ -6,10 +6,10 @@
     <label>Size<input name="size" value="{{ old('size', $gown?->size) }}" maxlength="50" required></label>
     <label>Color<input name="color" value="{{ old('color', $gown?->color) }}" maxlength="100" required></label>
     <label>Style<input name="style" value="{{ old('style', $gown?->style) }}" maxlength="255" placeholder="A-line, mermaid, ball gown"></label>
-    <label>Rental price (PHP)<input type="number" name="rental_price" value="{{ old('rental_price', $gown?->rental_price) }}" min="0" step="0.01" required></label>
-    <label>Purchase price (PHP)<input type="number" name="purchase_price" value="{{ old('purchase_price', $gown?->purchase_price) }}" min="0" step="0.01"></label>
+    <label>Rental price (PHP)<input type="number" name="rental_price" value="{{ old('rental_price', $gown?->rental_price) }}" min="0" max="99999999.99" step="0.01" required><x-input-error :messages="$errors->get('rental_price')" /></label>
+    <label>Purchase price (PHP)<input type="number" name="purchase_price" value="{{ old('purchase_price', $gown?->purchase_price) }}" min="0" max="99999999.99" step="0.01"><x-input-error :messages="$errors->get('purchase_price')" /></label>
     <label>Condition<select name="condition" required>@foreach(['excellent', 'good', 'fair', 'damaged'] as $condition)<option value="{{ $condition }}" @selected(old('condition', $gown?->condition ?? 'good') === $condition)>{{ ucfirst($condition) }}</option>@endforeach</select></label>
-    <label>Availability<select name="status" required>@foreach(['available', 'reserved', 'rented', 'for_cleaning', 'under_maintenance', 'damaged', 'unavailable', 'retired'] as $status)<option value="{{ $status }}" @selected(old('status', $gown?->status ?? 'available') === $status)>{{ ucfirst(str_replace('_', ' ', $status)) }}</option>@endforeach</select></label>
+    <label>Availability<select name="status" required>@foreach(['available', 'reserved', 'for_cleaning', 'under_maintenance', 'damaged', 'unavailable', 'retired'] as $status)<option value="{{ $status }}" @selected(old('status', $gown?->status ?? 'available') === $status)>{{ ucfirst(str_replace('_', ' ', $status)) }}</option>@endforeach</select></label>
     <label>Date purchased<input type="date" name="date_purchased" value="{{ old('date_purchased', $gown?->date_purchased?->format('Y-m-d')) }}"></label>
     <label>Gown image
         <input type="file" name="image" accept="image/jpeg,image/png,image/webp">

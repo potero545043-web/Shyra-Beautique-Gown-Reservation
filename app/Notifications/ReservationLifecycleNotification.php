@@ -47,6 +47,12 @@ class ReservationLifecycleNotification extends Notification
                 'Overdue return',
                 "Your gown, {$gownName} ({$reservationCode}), is overdue for return. Please return it as soon as possible.",
             ],
+            'returned' => [
+                'Return recorded',
+                "Your gown return for {$reservationCode} was recorded on "
+                    .($this->reservation->gownReturn?->actual_return_date?->format('F j, Y') ?? 'today')
+                    .' in '.ucfirst(str_replace('_', ' ', $this->reservation->gownReturn?->condition_after ?? 'good')).' condition.',
+            ],
             'cancelled' => [
                 'Reservation cancelled',
                 "Your reservation for {$gownName} ({$reservationCode}) has been cancelled.",

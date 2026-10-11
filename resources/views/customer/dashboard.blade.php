@@ -5,7 +5,7 @@
                 <div class="sb-success">Reservation {{ session('reservation_code') }} received. It is waiting for staff
                     confirmation.</div>
             @endif
-            <section class="sb-customer-hero">
+            <section class="sb-simple-overview-hero sb-customer-hero">
                 <div class="sb-customer-hero-copy">
                     <span class="sb-kicker">ACCOUNT OVERVIEW</span>
                     <h1>Welcome, <em>{{ auth()->user()->name }}</em></h1>
@@ -128,9 +128,21 @@
                     @php
                         $isOverdue = $rental->status === 'overdue'
                             || ($rental->status === 'released' && $rental->return_date?->isBefore(today()));
+                        $rentalGown = $rental->items->first(fn($item) => $item->gown)?->gown;
                     @endphp
                     <article class="sb-customer-rental-row">
+                        <div class="sb-customer-rental-photo">
+                            @if($rentalGown)
+                                <img src="{{ $rentalGown->image_url }}" alt="{{ $rentalGown->name }}" loading="lazy">
+                            @else
+                                <span aria-hidden="true">✿</span>
+                            @endif
+                        </div>
                         <div class="sb-customer-rental-name">
+                            <small class="sb-customer-rental-eyebrow">
+                                {{ $rentalGown?->category?->name ?? 'Your rental' }}
+                                @if($rental->items->count() > 1) · {{ $rental->items->count() }} gowns @endif
+                            </small>
                             <strong>{{ $rental->items->map(fn($item) => $item->gown?->name)->filter()->join(', ') ?: 'Gown rental' }}</strong>
                             <small>{{ $rental->reservation_code }}</small>
                         </div>
@@ -142,8 +154,9 @@
                             <small>{{ $isOverdue ? 'RETURN OVERDUE' : 'RETURN DUE' }}</small>
                             <b>{{ $rental->return_date?->format('M d, Y') }}</b>
                         </div>
-                        <span
-                            class="sb-status {{ $isOverdue ? 'is-overdue' : '' }}">{{ ucfirst(str_replace('_', ' ', $rental->status)) }}</span>
+                        <span class="sb-status {{ $isOverdue ? 'is-overdue' : '' }}">
+                            {{ ucfirst(str_replace('_', ' ', $rental->status)) }}
+                        </span>
                         <a class="sb-customer-rental-action" href="{{ route('customer.reservations.show', $rental) }}">View
                             reservation <span aria-hidden="true">&rarr;</span></a>
                     </article>

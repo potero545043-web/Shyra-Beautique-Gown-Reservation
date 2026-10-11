@@ -3,13 +3,16 @@
         <div class="sb-wrap">
 
             {{-- HEADING --}}
-            <div class="sb-heading">
-                <div>
-                    <span class="sb-kicker">EMPLOYEE DASHBOARD</span>
+            <div class="sb-simple-overview-hero sb-customer-hero">
+                <div class="sb-customer-hero-copy">
+                    <span class="sb-kicker">EMPLOYEE OVERVIEW</span>
                     <h1>Welcome back, <em>{{ explode(' ', auth()->user()->name)[0] }}.</em></h1>
                     <p>Reservations, rentals, payments, and returns at a glance.</p>
+                    <div class="sb-customer-hero-actions">
+                        <a class="sb-btn" href="{{ route('employee.catalog') }}">Browse collection
+                            <span aria-hidden="true">&rarr;</span></a>
+                    </div>
                 </div>
-                <a class="sb-btn" href="{{ route('employee.catalog') }}">Browse collection</a>
             </div>
 
             {{-- 4 CARDS, one row --}}
@@ -75,7 +78,10 @@
                             </thead>
                             <tbody>
                                 @forelse($reservations as $booking)
-                                    <tr>
+                                    <tr class="sb-clickable-row"
+                                        data-href="{{ route('employee.reservations.show', $booking) }}"
+                                        tabindex="0" role="link"
+                                        aria-label="View reservation {{ $booking->reservation_code }}">
                                         <td>
                                             <strong>{{ $booking->reservation_code }}</strong>
                                             <small class="sb-cell-sub">
@@ -114,15 +120,21 @@
                     </div>
 
                     @forelse($returns as $booking)
-                        <div class="sb-return">
+                        <div class="sb-return sb-clickable-return">
                             <span class="sb-date-chip">
                                 {{ $booking->return_date?->format('d') }}
                                 <small>{{ $booking->return_date?->format('M') }}</small>
                             </span>
-                            <div>
+                            <a class="sb-return-booking-link"
+                                href="{{ route('employee.reservations.show', $booking) }}"
+                                aria-label="View reservation {{ $booking->reservation_code }}">
                                 <b>{{ $booking->customer->full_name ?? 'Customer' }}</b>
                                 <small>Reservation {{ $booking->reservation_code }}</small>
-                            </div>
+                            </a>
+                            <a class="sb-small-btn sb-dashboard-record-return"
+                                href="{{ route('employee.rentals') }}#rental-row-{{ $booking->id }}">
+                                Record Return
+                            </a>
                         </div>
                     @empty
                         <div class="sb-empty">No returns coming up.</div>

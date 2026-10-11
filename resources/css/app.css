@@ -6261,26 +6261,29 @@ body {
 }
 .sb-side-drawer {
     position: fixed;
-    inset: 0 0 0 auto;
-    width: min(460px, 100vw);
-    height: 100dvh;
+    inset: 50% auto auto 50%;
+    width: min(560px, calc(100vw - 32px));
+    height: auto;
     max-width: none;
-    max-height: none;
+    max-height: min(88dvh, 820px);
     margin: 0;
     padding: 0;
     overflow-y: auto;
-    border: 0;
+    border: 1px solid rgba(95, 61, 56, 0.14);
+    border-radius: 18px;
     background: #fff;
     color: #4a3037;
-    box-shadow: -14px 0 45px rgba(38, 20, 24, 0.18);
+    box-shadow: 0 24px 80px rgba(38, 20, 24, 0.24);
+    transform: translate(-50%, -50%);
 }
 .sb-side-drawer[open] {
     display: block;
-    animation: sbDrawerIn 180ms ease-out;
+    animation: sbCenteredDrawerIn 180ms ease-out;
 }
 .sb-side-drawer::backdrop {
     background: rgba(34, 22, 25, 0.48);
-    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
 }
 .sb-side-drawer-head {
     position: sticky;
@@ -6447,13 +6450,13 @@ body {
 .sb-team-empty .sb-btn {
     margin: 0 auto;
 }
-@keyframes sbDrawerIn {
+@keyframes sbCenteredDrawerIn {
     from {
-        transform: translateX(24px);
+        transform: translate(-50%, -48%);
         opacity: 0.7;
     }
     to {
-        transform: translateX(0);
+        transform: translate(-50%, -50%);
         opacity: 1;
     }
 }
@@ -6463,7 +6466,9 @@ body {
         justify-content: flex-start;
     }
     .sb-side-drawer {
-        width: 100vw;
+        width: calc(100vw - 24px);
+        max-height: 90dvh;
+        border-radius: 16px;
     }
     .sb-side-drawer-head {
         padding: 22px 20px 16px;
@@ -7384,10 +7389,6 @@ body {
 .sb-gown-status.is-reserved {
     background: #fff2dc;
     color: #9a6500;
-}
-.sb-gown-status.is-rented {
-    background: #e8f0fb;
-    color: #3567a5;
 }
 .sb-gown-status.is-maintenance,
 .sb-gown-status.is-damaged {
@@ -11290,8 +11291,7 @@ button.sb-cart-item-remove:hover {
     text-transform: uppercase;
     letter-spacing: 0.04em;
 }
-.sb-cart-row-availability.is-reserved,
-.sb-cart-row-availability.is-rented {
+.sb-cart-row-availability.is-reserved {
     background: #fbe6e6;
     color: #a3403f;
 }

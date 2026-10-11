@@ -22,10 +22,24 @@ class InventoryReportController extends Controller
     /** List every recorded damage report with its gown and repair cost. */
     public function damages(Request $request)
     {
+        return $this->damageListing($request, false);
+    }
+
+    public function archivedDamages(Request $request)
+    {
+        abort_unless($request->user()->role === 'owner', 403);
+
+        return $this->damageListing($request, true);
+    }
+
+    private function damageListing(Request $request, bool $archived)
+    {
         $perPage = in_array($request->integer('per_page', 12), [12, 24, 48], true)
             ? $request->integer('per_page', 12)
             : 12;
         $query = DamageReport::with(['gown', 'reservation.customer', 'gownReturn.reservation.customer'])
+            ->when($archived, fn($query) => $query->whereNotNull('archived_at'))
+            ->when(!$archived, fn($query) => $query->whereNull('archived_at'))
             ->latest();
 
         if ($request->filled('q')) {
@@ -50,16 +64,66 @@ class InventoryReportController extends Controller
             'damages' => $query->paginate($perPage)->withQueryString(),
             'totalCount' => (clone $baseQuery)->count(),
             'totalFinalCost' => $totalFinalCost,
-            'gowns' => Gown::whereNull('archived_at')
-                ->where('status', '!=', 'retired')
-                ->orderBy('name')
-                ->get(['id', 'gown_code', 'name', 'status']),
-            'reservations' => Reservation::with('customer')
+            'reservations' => $archived ? collect() : Reservation::with('customer')
                 ->whereHas('items')
                 ->latest()
                 ->limit(200)
                 ->get(['id', 'reservation_code', 'customer_id', 'status']),
             'base' => $request->user()->role,
+            'archived' => $archived,
+        ]);
+    }
+
+    public function damageGowns(Request $request)
+    {
+        return $this->gownOptions($request, 'damage');
+    }
+
+    public function purchaseGowns(Request $request)
+    {
+        return $this->gownOptions($request, 'purchase');
+    }
+
+    private function gownOptions(Request $request, string $purpose)
+    {
+        $filters = $request->validate([
+            'q' => ['nullable', 'string', 'max:120'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'selected_id' => ['nullable', 'integer', 'exists:gowns,id'],
+        ]);
+
+        $eligibleGowns = Gown::whereNull('archived_at')
+            ->when($purpose === 'damage', fn($query) => $query->where('status', '!=', 'retired'));
+        $query = (clone $eligibleGowns)
+            ->when($filters['q'] ?? null, function ($query, $term) {
+                $query->where(fn($search) => $search
+                    ->where('name', 'like', '%' . $term . '%')
+                    ->orWhere('gown_code', 'like', '%' . $term . '%'));
+            })
+            ->orderBy('name');
+        $gowns = $query->paginate(5)->withQueryString();
+        $selected = isset($filters['selected_id'])
+            ? (clone $eligibleGowns)->find($filters['selected_id'])
+            : null;
+
+        return response()->json([
+            'data' => $gowns->getCollection()->map(fn(Gown $gown) => [
+                'id' => $gown->id,
+                'gown_code' => $gown->gown_code,
+                'name' => $gown->name,
+                'status' => $gown->status,
+                'image_url' => $gown->image_url,
+            ]),
+            'current_page' => $gowns->currentPage(),
+            'last_page' => $gowns->lastPage(),
+            'total' => $gowns->total(),
+            'selected' => $selected ? [
+                'id' => $selected->id,
+                'gown_code' => $selected->gown_code,
+                'name' => $selected->name,
+                'status' => $selected->status,
+                'image_url' => $selected->image_url,
+            ] : null,
         ]);
     }
 
@@ -149,14 +213,22 @@ class InventoryReportController extends Controller
         return app(\App\Services\VercelBlobStorage::class)->privateFileResponse($damage->photos);
     }
 
-    /** Permanently delete a damage report (e.g. logged in error). */
-    public function destroyDamage(Request $request, DamageReport $damage)
+    public function archiveDamage(Request $request, DamageReport $damage)
     {
-        abort_unless($request->user()->role === 'owner', 403, 'Only the owner can remove damage reports.');
+        abort_unless($request->user()->role === 'owner', 403, 'Only the owner can archive damage reports.');
 
-        $damage->delete();
+        $damage->update(['archived_at' => now()]);
 
-        return back()->with('success', 'Damage report removed from the log.');
+        return back()->with('success', 'Damage report archived.');
+    }
+
+    public function restoreDamage(Request $request, DamageReport $damage)
+    {
+        abort_unless($request->user()->role === 'owner', 403, 'Only the owner can restore damage reports.');
+
+        $damage->update(['archived_at' => null]);
+
+        return back()->with('success', 'Damage report restored to the active log.');
     }
 
     /** List every gown a customer has purchased outright. */
@@ -205,7 +277,10 @@ class InventoryReportController extends Controller
 
         DB::transaction(function () use ($request, $data) {
             $gown = Gown::whereKey($data['gown_id'])->lockForUpdate()->firstOrFail();
-            abort_if(in_array($gown->status, ['rented'], true), 422, 'This gown is currently rented out and cannot be sold yet.');
+            $activeRental = Reservation::whereIn('status', ['pending', 'awaiting_payment', 'confirmed', 'ready_for_pickup', 'released', 'overdue'])
+                ->whereHas('items', fn ($items) => $items->where('gown_id', $gown->id))
+                ->exists();
+            abort_if($activeRental, 422, 'This gown is linked to an active reservation and cannot be sold yet.');
 
             $reservationId = $data['reservation_id'] ?? null;
             $gownReturn = $reservationId

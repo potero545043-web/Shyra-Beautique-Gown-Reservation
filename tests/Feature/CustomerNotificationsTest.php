@@ -303,14 +303,36 @@ it('provides private owner and employee notification inboxes', function () {
         ->assertSee('New reservation');
 });
 
-it('links owner dashboard reservations to payment records', function () {
+it('links owner dashboard reservations to their detail pages', function () {
     $owner = User::factory()->create(['role' => 'owner']);
 
-    $this->actingAs($owner)
+    $response = $this->actingAs($owner)
         ->get(route('owner.dashboard'))
         ->assertOk()
-        ->assertSee(route('owner.payments', ['q' => $this->reservation->reservation_code]), false)
+        ->assertSee('data-href="' . route('owner.reservations.show', $this->reservation) . '"', false)
         ->assertSee('View payments');
+
+    $html = $response->getContent();
+    $addGownLink = '~<a href="' . preg_quote(route('owner.gowns.create'), '~')
+        . '"[^>]*>.*?Add New Gown\s*</a>~s';
+
+    expect(preg_match($addGownLink, $html))->toBe(1);
+});
+
+it('keeps each recently added gown card image details and price inside its link', function () {
+    $owner = User::factory()->create(['role' => 'owner']);
+    $html = $this->actingAs($owner)->get(route('owner.dashboard'))->assertOk()->getContent();
+    $start = strpos($html, '<a href="' . route('owner.gowns.show', $this->gown) . '"');
+
+    expect($start)->not->toBeFalse();
+
+    $end = strpos($html, '</a>', $start);
+    $gownLink = substr($html, $start, $end - $start);
+
+    expect($gownLink)
+        ->toContain('Blue Evening Gown')
+        ->toContain('GWN-NOTIFY-001')
+        ->toContain('2,500');
 });
 
 it('does not expose customer notifications to another account', function () {

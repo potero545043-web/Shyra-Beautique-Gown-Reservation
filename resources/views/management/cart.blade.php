@@ -12,7 +12,7 @@
                     <p>Gather every gown the customer needs, then record them as one in-store reservation with a single
                         agreement and payment.</p>
                 </div>
-                <a class="sb-outline-btn" href="{{ route($role . '.catalog') }}">Back to collection</a>
+                <a class="sb-outline-btn sb-back-btn" href="{{ route($role . '.catalog') }}">Back to collection</a>
             </div>
 
             @if(session('success'))

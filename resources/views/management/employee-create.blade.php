@@ -1,6 +1,6 @@
 <x-app-layout>
     <div class="sb-page"><div class="sb-wrap">
-        <div class="sb-heading"><div><span class="sb-kicker">STAFF DIRECTORY</span><h1>Add an <em>employee.</em></h1><p>Create an employee account for operational access.</p></div><a class="sb-outline-btn" href="{{ route('owner.employees') }}">Back to employees</a></div>
+        <div class="sb-heading"><div><span class="sb-kicker">STAFF DIRECTORY</span><h1>Add an <em>employee.</em></h1><p>Create an employee account for operational access.</p></div><a class="sb-outline-btn sb-back-btn" href="{{ route('owner.employees') }}">Back to employees</a></div>
         @if($errors->any())<div class="sb-form-errors">{{ $errors->first() }}</div>@endif
         <section class="sb-panel sb-form-panel"><form method="POST" action="{{ route('owner.employees.store') }}" class="sb-reservation-form">
             @csrf

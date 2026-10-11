@@ -72,7 +72,8 @@
 
                                 @forelse($categories as $category)
 
-                                    <tr>
+                                    <tr class="sb-clickable-row" data-href="{{ route('owner.categories.show', $category) }}"
+                                        tabindex="0" role="link" aria-label="View category {{ $category->name }}">
 
                                         <td data-label="Category">
                                             <div class="sb-inventory-name">
@@ -110,24 +111,19 @@
 
                                             <div class="sb-inventory-actions">
 
-                                                <a href="{{ route('owner.categories.show', $category) }}"
-                                                    class="sb-action-view">View</a>
-
                                                 <a href="{{ route('owner.categories.edit', $category) }}"
                                                     class="sb-action-edit">Edit</a>
 
-                                                @if($category->is_active)
-                                                    <form method="POST"
-                                                        action="{{ route('owner.categories.destroy', $category) }}"
-                                                        onsubmit="return confirm('Deactivate this category?')">
-
-                                                        @csrf
-                                                        @method('DELETE')
-
-                                                        <button class="sb-retire" type="submit">Deactivate</button>
-
-                                                    </form>
-                                                @endif
+                                                <form method="POST"
+                                                    action="{{ route('owner.categories.toggle-status', $category) }}">
+                                                    @csrf
+                                                    @method('PATCH')
+                                                    <button
+                                                        class="{{ $category->is_active ? 'sb-action-danger' : 'sb-action-success' }}"
+                                                        type="submit">
+                                                        {{ $category->is_active ? 'Deactivate' : 'Activate' }}
+                                                    </button>
+                                                </form>
 
                                             </div>
 
@@ -162,7 +158,7 @@
 
 
             {{-- ADD CATEGORY DRAWER --}}
-            <dialog class="sb-side-drawer" id="category-create-dialog" aria-labelledby="category-create-title"
+            <dialog class="sb-side-drawer sb-inventory-modal" id="category-create-dialog" aria-labelledby="category-create-title"
                 onclick="if (event.target === this) this.close()">
 
                 <div class="sb-side-drawer-head">

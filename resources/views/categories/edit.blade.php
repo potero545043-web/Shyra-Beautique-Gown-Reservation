@@ -12,7 +12,7 @@
                     <p>Category changes also update how assigned gowns appear in the collection.</p>
                 </div>
 
-                <a class="sb-inventory-secondary" href="{{ route('owner.categories.index') }}">
+                <a class="sb-inventory-secondary sb-back-btn" href="{{ route('owner.categories.index') }}">
                     Back to categories
                 </a>
             </div>

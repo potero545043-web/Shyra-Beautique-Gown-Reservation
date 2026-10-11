@@ -1,16 +1,20 @@
 <?php
 
+use App\Models\AuditLog;
 use App\Models\Category;
 use App\Models\Customer;
 use App\Models\Employee;
-use App\Models\AuditLog;
 use App\Models\Gown;
 use App\Models\Payment;
 use App\Models\Reservation;
 use App\Models\SystemSetting;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 beforeEach(function () {
+    Storage::fake('local');
+
     $this->customerUser = User::factory()->create(['role' => 'customer']);
     $category = Category::create(['name' => 'Formal gowns']);
     $this->gown = Gown::create([
@@ -33,6 +37,7 @@ beforeEach(function () {
         'payment_option' => 'downpayment',
         'payment_amount' => '600.00',
         'agreement_accepted' => '1',
+        'government_id' => UploadedFile::fake()->image('government-id.jpg'),
     ];
 });
 
@@ -71,12 +76,26 @@ it('stores a cash down payment without charging a cash deposit', function () {
         ->and((float) $reservation->grand_total)->toBe(2500.0)
         ->and((float) $reservation->amount_paid)->toBe(0.0)
         ->and((float) $reservation->balance)->toBe(2500.0)
-        ->and($reservation->government_id_photo_path)->toBeNull()
+        ->and($reservation->government_id_photo_path)->not->toBeNull()
+        ->and(Storage::disk('local')->exists($reservation->government_id_photo_path))->toBeTrue()
         ->and($reservation->payments)->toHaveCount(1)
         ->and($reservation->payments->first()->payment_method)->toBe('cash')
         ->and($reservation->payments->first()->status)->toBe('pending')
         ->and((float) $reservation->payments->first()->amount)->toBe(600.0)
         ->and($reservation->payment_reference_number)->toBeNull();
+});
+
+it('requires a government ID photo before submitting a customer reservation', function () {
+    $data = $this->reservationData;
+    unset($data['government_id']);
+
+    $this->actingAs($this->customerUser)
+        ->withSession(['reservation_cart' => [$this->gown->id]])
+        ->from(route('customer.reserve'))
+        ->post(route('customer.reserve.store'), $data)
+        ->assertSessionHasErrors('government_id');
+
+    expect(Reservation::count())->toBe(0);
 });
 
 it('shows customer reservations in a clickable table and opens reservation details for staff', function () {
@@ -90,7 +109,7 @@ it('shows customer reservations in a clickable table and opens reservation detai
         ->get(route('customer.reservations'))
         ->assertOk()
         ->assertSee('sb-customer-reservations-table', false)
-        ->assertSee('data-href="' . route('customer.reservations.show', $reservation) . '"', false)
+        ->assertSee('data-href="'.route('customer.reservations.show', $reservation).'"', false)
         ->assertSee($reservation->reservation_code)
         ->assertDontSee('>More</summary>', false)
         ->assertDontSee('data-customer-payment-form', false);
@@ -99,7 +118,20 @@ it('shows customer reservations in a clickable table and opens reservation detai
     $this->actingAs($owner)
         ->get(route('owner.reservations'))
         ->assertOk()
-        ->assertSee('data-href="' . route('owner.reservations.show', $reservation) . '"', false);
+        ->assertSee('data-href="'.route('owner.reservations.show', $reservation).'"', false);
+
+    $employee = User::factory()->create(['role' => 'employee']);
+    $this->actingAs($employee)
+        ->get(route('employee.dashboard'))
+        ->assertOk()
+        ->assertSee('data-href="'.route('employee.reservations.show', $reservation).'"', false)
+        ->assertSee('aria-label="View reservation '.$reservation->reservation_code.'"', false);
+
+    $this->actingAs($employee)
+        ->get(route('employee.reservations.show', $reservation))
+        ->assertOk()
+        ->assertSee($reservation->reservation_code)
+        ->assertSee($this->gown->name);
 
     $this->actingAs($this->customerUser)
         ->get(route('customer.reservations.show', $reservation))
@@ -116,8 +148,8 @@ it('shows customer reservations in a clickable table and opens reservation detai
         ->assertSee($reservation->reservation_code)
         ->assertSee($this->gown->name)
         ->assertSee('class="sb-reservation-gown-photo"', false)
-        ->assertSee('alt="' . $this->gown->name . '"', false)
-        ->assertSee('src="' . asset('images/image.webp') . '"', false)
+        ->assertSee('alt="'.$this->gown->name.'"', false)
+        ->assertSee('src="'.asset('images/image.webp').'"', false)
         ->assertSee('Payment summary');
 });
 
@@ -208,7 +240,7 @@ it('rejects down payments of ₱500 or less and does not accept GCash', function
 });
 
 it('renders only the required reservation fields from the paper', function () {
-    $this->actingAs($this->customerUser)
+    $reservationHtml = $this->actingAs($this->customerUser)
         ->withSession(['reservation_cart' => [$this->gown->id]])
         ->get(route('customer.reserve'))
         ->assertOk()
@@ -217,9 +249,19 @@ it('renders only the required reservation fields from the paper', function () {
         ->assertSee('Full payment')
         ->assertSee('Down payment')
         ->assertSee('Bring one valid government-issued ID')
+        ->assertSee('name="government_id"', false)
         ->assertSee('Requirements')
         ->assertSee('Pending approval after', false)
         ->assertSee('data-step-error', false)
+        ->getContent();
+
+    expect(strpos($reservationHtml, '<span class="sb-kicker">STEP 3</span>'))
+        ->toBeLessThan(strpos($reservationHtml, 'Live photo of valid physical government ID'));
+
+    $this->actingAs($this->customerUser)
+        ->withSession(['reservation_cart' => [$this->gown->id]])
+        ->get(route('customer.reserve'))
+        ->assertDontSee('Add another gown to this reservation')
         ->assertDontSee('Event date')
         ->assertDontSee('Occasion')
         ->assertDontSee('Height (cm)')
@@ -229,9 +271,17 @@ it('renders only the required reservation fields from the paper', function () {
         ->assertDontSee('Bank transfer');
 });
 
+it('renders the availability check as a same-origin customer URL', function () {
+    $this->actingAs($this->customerUser)
+        ->withSession(['reservation_cart' => [$this->gown->id]])
+        ->get(route('customer.reserve'))
+        ->assertOk()
+        ->assertSee(str_replace('/', '\/', route('customer.reserve.availability', $this->gown, false)), false);
+});
+
 it('allows at most three calendar rental days in availability checks', function () {
     $this->actingAs($this->customerUser)
-        ->getJson(route('customer.reserve.availability', $this->gown) . '?' . http_build_query([
+        ->getJson(route('customer.reserve.availability', $this->gown).'?'.http_build_query([
             'pickup_date' => today()->addDays(2)->toDateString(),
             'return_date' => today()->addDays(4)->toDateString(),
         ]))
@@ -240,12 +290,100 @@ it('allows at most three calendar rental days in availability checks', function 
         ->assertJsonPath('rental_days', 3);
 
     $this->actingAs($this->customerUser)
-        ->getJson(route('customer.reserve.availability', $this->gown) . '?' . http_build_query([
+        ->getJson(route('customer.reserve.availability', $this->gown).'?'.http_build_query([
             'pickup_date' => today()->addDays(2)->toDateString(),
             'return_date' => today()->addDays(5)->toDateString(),
         ]))
         ->assertOk()
         ->assertJsonPath('available', false);
+});
+
+it('includes the two-day cleaning buffer in availability checks and reservation submission', function () {
+    $existing = Reservation::create([
+        'reservation_code' => 'GR-TEST-CLEANING-BUFFER',
+        'customer_id' => Customer::create([
+            'customer_code' => 'CUS-TEST-CLEANING-BUFFER',
+            'full_name' => 'Cleaning buffer renter',
+            'contact_number' => '09170000000',
+            'status' => 'active',
+        ])->id,
+        'pickup_date' => today()->addDays(2)->toDateString(),
+        'return_date' => today()->addDays(4)->toDateString(),
+        'rental_total' => 2500,
+        'grand_total' => 2500,
+        'balance' => 2500,
+        'status' => 'confirmed',
+    ]);
+    $existing->items()->create(['gown_id' => $this->gown->id, 'rental_price' => 2500, 'quantity' => 1]);
+
+    $this->actingAs($this->customerUser)
+        ->getJson(route('customer.reserve.availability', $this->gown).'?'.http_build_query([
+            'pickup_date' => today()->addDays(5)->toDateString(),
+            'return_date' => today()->addDays(7)->toDateString(),
+        ]))
+        ->assertOk()
+        ->assertJsonPath('available', false)
+        ->assertJsonPath('conflicts.'.$this->gown->id.'.through', today()->addDays(5)->toDateString());
+
+    $this->actingAs($this->customerUser)
+        ->getJson(route('customer.reserve.availability', $this->gown).'?'.http_build_query([
+            'pickup_date' => today()->addDays(6)->toDateString(),
+            'return_date' => today()->addDays(8)->toDateString(),
+        ]))
+        ->assertOk()
+        ->assertJsonPath('available', true);
+
+    $this->actingAs($this->customerUser)
+        ->withSession(['reservation_cart' => [$this->gown->id]])
+        ->from(route('customer.reserve'))
+        ->post(route('customer.reserve.store'), array_replace($this->reservationData, [
+            'pickup_date' => today()->addDays(5)->toDateString(),
+            'return_date' => today()->addDays(7)->toDateString(),
+        ]))
+        ->assertSessionHasErrors('pickup_date');
+
+    expect(Reservation::count())->toBe(1);
+});
+
+it('checks every gown in the customer cart for date conflicts', function () {
+    $secondGown = Gown::create([
+        'category_id' => $this->gown->category_id,
+        'gown_code' => 'GWN-TEST-AVAIL',
+        'name' => 'Second availability gown',
+        'rental_price' => 1500,
+        'security_deposit' => 0,
+        'status' => 'available',
+    ]);
+    $reservation = Reservation::create([
+        'reservation_code' => 'GR-TEST-AVAIL',
+        'customer_id' => Customer::create([
+            'customer_code' => 'CUS-TEST-AVAIL',
+            'full_name' => 'Existing renter',
+            'contact_number' => '09170000000',
+            'status' => 'active',
+        ])->id,
+        'pickup_date' => today()->addDays(2)->toDateString(),
+        'return_date' => today()->addDays(3)->toDateString(),
+        'rental_total' => 1500,
+        'grand_total' => 1500,
+        'balance' => 1500,
+        'status' => 'confirmed',
+    ]);
+    $reservation->items()->create([
+        'gown_id' => $secondGown->id,
+        'rental_price' => 1500,
+        'quantity' => 1,
+    ]);
+
+    $this->actingAs($this->customerUser)
+        ->getJson(route('customer.reserve.availability', $this->gown) . '?' . http_build_query([
+            'pickup_date' => today()->addDays(2)->toDateString(),
+            'return_date' => today()->addDays(3)->toDateString(),
+            'gown_ids' => [$this->gown->id, $secondGown->id],
+        ]))
+        ->assertOk()
+        ->assertJsonPath('available', false)
+        ->assertJsonPath('conflicts.' . $secondGown->id . '.from', today()->addDays(2)->toDateString());
 });
 
 it('confirms cancellation and retains the reservation and verified down payment', function () {
@@ -304,7 +442,7 @@ it('confirms cancellation and retains the reservation and verified down payment'
         ->assertSee('Refund')
         ->assertSee('View Reservation History');
 
-    expect(AuditLog::where('description', 'like', '%' . $reservation->reservation_code . '%')->count())->toBe(2);
+    expect(AuditLog::where('description', 'like', '%'.$reservation->reservation_code.'%')->count())->toBe(2);
 });
 
 it('shows owner actions in a floating manage panel and hides payments for cancelled bookings', function () {
@@ -336,6 +474,38 @@ it('renders owner payment review actions without an undefined route base', funct
         ->assertOk()
         ->assertSee('Verify')
         ->assertSee('Reject');
+});
+
+it('shows gown photos and details in the customer reservation history', function () {
+    $this->actingAs($this->customerUser)
+        ->withSession(['reservation_cart' => [$this->gown->id]])
+        ->post(route('customer.reserve.store'), $this->reservationData);
+
+    $reservation = Reservation::firstOrFail();
+    $owner = User::factory()->create(['role' => 'owner']);
+
+    $this->actingAs($owner)
+        ->get(route('owner.customers.show', $reservation->customer))
+        ->assertOk()
+        ->assertSee($reservation->reservation_code)
+        ->assertSee($this->gown->name)
+        ->assertSee('sb-customer-item-card', false)
+        ->assertSee($this->gown->image_url, false);
+});
+
+it('shows the gown photo in the customer dashboard rental card', function () {
+    $this->actingAs($this->customerUser)
+        ->withSession(['reservation_cart' => [$this->gown->id]])
+        ->post(route('customer.reserve.store'), $this->reservationData);
+
+    $reservation = Reservation::firstOrFail();
+
+    $this->get(route('customer.dashboard'))
+        ->assertOk()
+        ->assertSee('sb-customer-rental-photo', false)
+        ->assertSee('alt="'.$this->gown->name.'"', false)
+        ->assertSee('src="'.$this->gown->image_url.'"', false)
+        ->assertSee($reservation->reservation_code);
 });
 
 it('renders full customer history and employee edit forms inside their panels', function () {
@@ -382,5 +552,10 @@ it('downloads a generated business report as a PDF', function () {
         ->assertOk()
         ->assertHeader('content-type', 'application/pdf');
 
-    expect(substr($response->getContent(), 0, 5))->toBe('%PDF-');
+    $pdf = $response->getContent();
+    preg_match_all('/\/Type\s*\/Page\b/', $pdf, $pages);
+
+    expect(substr($pdf, 0, 5))->toBe('%PDF-')
+        ->and(count($pages[0]))->toBeGreaterThan(0)
+        ->and(count($pages[0]))->toBeLessThanOrEqual(5);
 });

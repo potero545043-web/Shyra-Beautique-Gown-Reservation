@@ -104,7 +104,19 @@
 
                                 @forelse($purchases as $purchase)
 
-                                    <tr>
+                                    <tr class="sb-record-row" tabindex="0" aria-haspopup="dialog"
+                                        aria-label="View purchase of {{ $purchase->gown->name ?? 'removed gown' }}"
+                                        data-record-title="{{ $purchase->gown->name ?? 'Purchase record' }}"
+                                        data-record-image="{{ $purchase->gown?->image_url ?? '' }}"
+                                        data-record-details="{{ json_encode([
+                                            'Gown code' => $purchase->gown->gown_code ?? 'Removed gown',
+                                            'Customer' => $purchase->reservation?->customer?->full_name ?? 'Walk-in customer',
+                                            'Contact' => $purchase->reservation?->customer?->contact_number ?? 'Not provided',
+                                            'Reservation' => $purchase->reservation?->reservation_code ?? 'Direct sale',
+                                            'Sale price' => '₱' . number_format($purchase->amount, 2),
+                                            'Purchased' => $purchase->purchased_at?->format('M d, Y') ?? '—',
+                                            'Processed by' => $purchase->processedBy?->name ?? '—',
+                                        ], JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_TAG | JSON_HEX_AMP) }}">
 
                                         {{-- GOWN --}}
                                         <td data-label="Gown">
@@ -183,6 +195,7 @@
 
                     </div>
 
+                    @include('components.record-details-dialog')
 
                     {{-- PAGINATION --}}
                     @include('components.table-pagination', ['paginator' => $purchases, 'itemLabel' => 'purchases'])
@@ -193,7 +206,7 @@
 
 
             {{-- RECORD PURCHASE DRAWER --}}
-            <dialog class="sb-side-drawer" id="purchase-create-dialog" aria-labelledby="purchase-create-title"
+            <dialog class="sb-side-drawer sb-inventory-modal" id="purchase-create-dialog" aria-labelledby="purchase-create-title"
                 onclick="if (event.target === this) this.close()">
 
                 <div class="sb-side-drawer-head">
@@ -223,17 +236,10 @@
                         <div class="sb-form-errors">{{ $errors->first() }}</div>
                     @endif
 
-                    <label>Gown
-                        <select name="gown_id" required>
-                            <option value="">Choose a gown</option>
-                            @foreach(\App\Models\Gown::whereNull('archived_at')->whereNotIn('status', ['rented'])->orderBy('name')->get() as $gown)
-                                <option value="{{ $gown->id }}" @selected(old('gown_id') == $gown->id)>
-                                    {{ $gown->gown_code }} · {{ $gown->name }}
-                                </option>
-                            @endforeach
-                        </select>
-                        <x-input-error :messages="$errors->get('gown_id')" />
-                    </label>
+                    <x-gown-picker
+                        name="gown_id"
+                        :endpoint="route($base . '.purchases.gowns')"
+                    />
 
                     <label>Sale price (PHP)
                         <input type="number" name="amount" min="0.01" max="1000000" step="0.01"

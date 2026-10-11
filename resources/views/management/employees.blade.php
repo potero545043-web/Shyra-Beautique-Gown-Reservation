@@ -83,7 +83,8 @@
                                         );
                                     @endphp
 
-                                    <tr>
+                                    <tr class="sb-clickable-row" data-href="{{ route('owner.employees.show', $employee) }}"
+                                        tabindex="0" role="link" aria-label="View employee {{ $employee->full_name }}">
 
                                         {{-- EMPLOYEE --}}
                                         <td data-label="Employee">
@@ -141,7 +142,7 @@
                                                     @method('PATCH')
 
                                                     @if($employee->status === 'active')
-                                                        <button class="sb-retire" type="submit">Deactivate</button>
+                                                        <button class="sb-action-danger" type="submit">Deactivate</button>
                                                     @else
                                                         <button class="sb-action-edit" type="submit">Activate</button>
                                                     @endif

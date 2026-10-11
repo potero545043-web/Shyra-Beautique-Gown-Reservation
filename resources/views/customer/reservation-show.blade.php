@@ -81,7 +81,24 @@
                                 <p class="sb-cancellation-policy">
                                     {{ $paidDownPayment > 0 ? 'Your down payment was retained according to the cancellation policy.' : 'No verified down payment was recorded for this reservation.' }}
                                 </p>
-                                <a class="sb-btn" href="{{ route('customer.reservations') }}">Back to My Reservations</a>
+                                <a class="sb-btn sb-back-btn" href="{{ route('customer.reservations') }}">Back to My Reservations</a>
+                            </div>
+                        @elseif($reservation->status === 'returned')
+                            <div class="sb-confirm-hero sb-returned-receipt" role="status">
+                                <span class="sb-kicker">RETURN CONFIRMED</span>
+                                <h2>Gown returned</h2>
+                                <p>Our staff recorded your return on
+                                    {{ $reservation->gownReturn?->actual_return_date?->format('F j, Y') ?? 'the date shown below' }}.
+                                    Thank you for renting with Shyra Beautique.</p>
+                                @if($reservation->gownReturn)
+                                    <div class="sb-returned-receipt-details">
+                                        <div><span>Condition</span><b>{{ ucfirst(str_replace('_', ' ', $reservation->gownReturn->condition_after)) }}</b></div>
+                                        @if($reservation->gownReturn->notes)
+                                            <div><span>Inspection notes</span><b>{{ $reservation->gownReturn->notes }}</b></div>
+                                        @endif
+                                    </div>
+                                @endif
+                                <span class="sb-status sb-status-returned"><span class="sb-status-dot"></span> Returned</span>
                             </div>
                         @else
                             <div class="sb-confirm-hero">
@@ -116,6 +133,13 @@
                                 </div>
                                 <div><span>Return</span><b>{{ $reservation->return_date?->toFormattedDateString() }}</b>
                                 </div>
+                                @if($reservation->gownReturn)
+                                    <div><span>Actual return</span><b>{{ $reservation->gownReturn->actual_return_date?->toFormattedDateString() ?? '—' }}</b></div>
+                                    <div><span>Return condition</span><b>{{ ucfirst(str_replace('_', ' ', $reservation->gownReturn->condition_after)) }}</b></div>
+                                    @if($reservation->gownReturn->notes)
+                                        <div><span>Inspection notes</span><b>{{ $reservation->gownReturn->notes }}</b></div>
+                                    @endif
+                                @endif
                                 @if($reservation->customer_notes)
                                     <div><span>Notes</span><b>{{ $reservation->customer_notes }}</b></div>
                                 @endif
@@ -221,7 +245,7 @@
                                         Cancel Reservation
                                     </button>
                                 @endif
-                                <a class="sb-btn" href="{{ route('customer.reservations') }}">Back</a>
+                                <a class="sb-btn sb-back-btn" href="{{ route('customer.reservations') }}">Back</a>
                             </div>
                         @endif
                     </div>

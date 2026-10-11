@@ -2,18 +2,32 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\{AuditLog, CleaningRecord, Customer, DamageReport, Employee, Gown, GownRelease, GownReturn, MaintenanceRecord, Payment, Penalty, Reservation, SystemSetting, User};
+use App\Http\Controllers\Customer\DashboardController as CustomerReservationController;
+use App\Models\AuditLog;
+use App\Models\CleaningRecord;
+use App\Models\Customer;
+use App\Models\DamageReport;
+use App\Models\Employee;
+use App\Models\Gown;
 use App\Models\GownPurchase;
+use App\Models\GownRelease;
+use App\Models\GownReturn;
+use App\Models\MaintenanceRecord;
+use App\Models\Payment;
+use App\Models\Penalty;
+use App\Models\Reservation;
+use App\Models\SystemSetting;
+use App\Models\User;
 use App\Services\ReservationCart;
 use App\Services\VercelBlobStorage;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
-use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 
 class ManagementController extends Controller
@@ -33,12 +47,12 @@ class ManagementController extends Controller
     /** Adds a gown to the current booking cart and returns to the collection. */
     public function addToCart(Gown $gown)
     {
-        abort_unless($gown->status === 'available', 422, $gown->name . ' is not currently available for a new reservation.');
+        abort_unless(in_array($gown->status, ['available', 'reserved'], true), 422, $gown->name.' cannot be reserved at this time.');
         abort_if($gown->archived_at !== null, 422, 'This gown is no longer in the collection.');
 
         $this->reservationCart()->add($gown->id);
 
-        return back()->with('success', $gown->name . ' was added to the in-store cart. Add more gowns, then open My Cart to reserve them together.');
+        return back()->with('success', $gown->name.' was added to the in-store cart. Add more gowns, then open My Cart to reserve them together.');
     }
 
     /** Shows the in-store cart so several gowns can be reserved together. */
@@ -56,28 +70,28 @@ class ManagementController extends Controller
     {
         $this->reservationCart()->remove($gown->id);
 
-        return redirect()->route(request()->user()->role . '.cart')
-            ->with('success', $gown->name . ' was removed from the in-store cart.');
+        return redirect()->route(request()->user()->role.'.cart')
+            ->with('success', $gown->name.' was removed from the in-store cart.');
     }
 
     public function clearCart()
     {
         $this->reservationCart()->clear();
 
-        return redirect()->route(request()->user()->role . '.catalog')->with('success', 'The in-store cart was cleared.');
+        return redirect()->route(request()->user()->role.'.catalog')->with('success', 'The in-store cart was cleared.');
     }
 
-    /**
-     * Starts the walk-in booking form. With no gown in the URL it is seeded from
-     * the staff cart so several gowns flow straight into one reservation.
-     */
+    /** Starts either a one-gown reservation or a bulk reservation from the role cart. */
     public function employeeReservationForm(?Gown $gown = null)
     {
-        $cartGowns = $this->reservationCart()->gowns();
-
         if ($gown) {
-            abort_unless($gown->status === 'available', 422, 'Only gowns currently marked available can start a new reservation.');
-            $cartGowns = $cartGowns->prepend($gown)->unique('id')->values();
+            abort_unless(in_array($gown->status, ['available', 'reserved'], true), 422, 'This gown cannot be reserved at this time.');
+            abort_if($gown->archived_at !== null, 422, 'This gown is no longer in the collection.');
+            $cartGowns = collect([$gown]);
+            $reservationSource = 'single';
+        } else {
+            $cartGowns = $this->reservationCart()->gowns();
+            $reservationSource = 'cart';
         }
 
         abort_if($cartGowns->isEmpty(), 422, 'Add at least one gown to the in-store cart before starting a reservation.');
@@ -86,14 +100,88 @@ class ManagementController extends Controller
             'customers' => Customer::where('status', 'active')->orderBy('full_name')->get(),
             'gown' => $cartGowns->first(),
             'cartGowns' => $cartGowns,
-            // Other available gowns so staff can add several pieces to one walk-in booking.
-            'addableGowns' => Gown::with('category')
-                ->whereNull('archived_at')
-                ->where('status', 'available')
-                ->whereNotIn('id', $cartGowns->pluck('id'))
-                ->orderBy('name')
-                ->get(),
+            'reservationSource' => $reservationSource,
             'lateFeePerDay' => (float) SystemSetting::where('setting_key', 'late_fee_per_day')->value('setting_value'),
+        ]);
+    }
+
+    public function checkReservationAvailability(Request $request)
+    {
+        $data = $request->validate([
+            'pickup_date' => ['required', 'date', 'after_or_equal:today'],
+            'return_date' => ['required', 'date', 'after_or_equal:pickup_date'],
+            'gown_ids' => ['required', 'array', 'min:1'],
+            'gown_ids.*' => ['integer', 'distinct', 'exists:gowns,id'],
+        ]);
+
+        $pickup = Carbon::parse($data['pickup_date'])->startOfDay();
+        $return = Carbon::parse($data['return_date'])->startOfDay();
+        $days = $pickup->diffInDays($return) + 1;
+        if ($days > CustomerReservationController::MAX_RENTAL_DAYS) {
+            return response()->json([
+                'available' => false,
+                'reason' => 'A gown may be rented for up to '.CustomerReservationController::MAX_RENTAL_DAYS.' days from its pickup date.',
+                'summary' => null,
+                'rental_days' => $days,
+                'conflicts' => [],
+            ]);
+        }
+
+        $gowns = Gown::whereIn('id', $data['gown_ids'])
+            ->whereNull('archived_at')
+            ->whereIn('status', ['available', 'reserved'])
+            ->get();
+        if ($gowns->count() !== count($data['gown_ids'])) {
+            return response()->json([
+                'available' => false,
+                'reason' => 'One or more gowns in this reservation can no longer be booked.',
+                'summary' => null,
+                'rental_days' => $days,
+                'conflicts' => [],
+            ]);
+        }
+
+        $gownsById = $gowns->keyBy('id');
+        $conflicts = [];
+        $existingReservations = Reservation::with(['items', 'gownReturn'])
+            ->whereNotIn('status', ['cancelled', 'rejected'])
+            ->whereHas('items', fn ($items) => $items->whereIn('gown_id', $gowns->pluck('id')))
+            ->get();
+        foreach ($existingReservations as $existing) {
+            $occupiedFrom = Carbon::parse($existing->pickup_date)->startOfDay();
+            $occupiedThrough = CustomerReservationController::gownBlockedThrough(
+                Carbon::parse($existing->gownReturn?->actual_return_date ?? $existing->return_date)
+            );
+            if (! $occupiedFrom->lte($return) || ! $occupiedThrough->gte($pickup)) {
+                continue;
+            }
+
+            foreach ($existing->items->pluck('gown_id')->unique() as $gownId) {
+                if ($gownsById->has($gownId)) {
+                    $conflicts[$gownId] ??= [
+                        'from' => $occupiedFrom->toDateString(),
+                        'through' => $occupiedThrough->toDateString(),
+                    ];
+                }
+            }
+        }
+
+        $reason = collect($conflicts)->map(function ($block, $gownId) use ($gownsById) {
+            return $gownsById->get($gownId)->name.' is already booked '
+                .Carbon::parse($block['from'])->toFormattedDateString()
+                .' – '.Carbon::parse($block['through'])->toFormattedDateString();
+        })->implode('; ');
+        if ($reason !== '') {
+            $reason .= '. Please pick different dates.';
+        }
+
+        return response()->json([
+            'available' => $reason === '',
+            'reason' => $reason ?: null,
+            'summary' => $reason === '' ? 'Available for the selected dates · Pickup '.$pickup->toFormattedDateString()
+                .' · Return '.$return->toFormattedDateString().' · Subject to staff approval' : null,
+            'rental_days' => $days,
+            'conflicts' => $conflicts,
         ]);
     }
 
@@ -127,6 +215,7 @@ class ManagementController extends Controller
             'contact_number' => ['required_without:existing_customer_id', 'nullable', 'string', 'max:40'],
             'gown_ids' => ['nullable', 'array'],
             'gown_ids.*' => ['integer', 'distinct', 'exists:gowns,id'],
+            'reservation_source' => ['sometimes', Rule::in(['cart', 'single'])],
             'pickup_date' => ['required', 'date', 'after_or_equal:today'],
             'return_date' => ['required', 'date', 'after_or_equal:pickup_date'],
             'bust' => ['nullable', 'numeric', 'min:0', 'max:300'],
@@ -134,36 +223,39 @@ class ManagementController extends Controller
             'hips' => ['nullable', 'numeric', 'min:0', 'max:300'],
             'length' => ['nullable', 'numeric', 'min:0', 'max:400'],
             'government_id' => ['required', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
-            'id_safe_slot' => ['required', 'string', 'max:80'],
             'agreement_accepted' => ['accepted'],
+            'payment_option' => ['required', Rule::in(['full', 'downpayment'])],
             'payment_amount' => ['required', 'numeric', 'gt:0'],
             'payment_method' => ['required', Rule::in(['cash'])],
         ]);
-        if (Carbon::parse($data['return_date'])->gt(Carbon::parse($data['pickup_date'])->addDays(2))) {
-            throw ValidationException::withMessages(['return_date' => 'A gown may be rented for up to 3 days from its pickup date.']);
+        if (Carbon::parse($data['return_date'])->gt(Carbon::parse($data['pickup_date'])->addDays(CustomerReservationController::MAX_RENTAL_DAYS - 1))) {
+            throw ValidationException::withMessages(['return_date' => 'A gown may be rented for up to '.CustomerReservationController::MAX_RENTAL_DAYS.' days from its pickup date.']);
         }
         $lateFeePerDay = (float) SystemSetting::where('setting_key', 'late_fee_per_day')->value('setting_value');
         if ($lateFeePerDay <= 0) {
             throw ValidationException::withMessages(['return_date' => 'Set the shop late fee per day in settings before accepting reservations.']);
         }
 
-        $customer = !empty($data['existing_customer_id'])
+        $customer = ! empty($data['existing_customer_id'])
             ? Customer::findOrFail($data['existing_customer_id'])
             : Customer::create([
-                'customer_code' => 'CUS-' . strtoupper(Str::random(8)),
+                'customer_code' => 'CUS-'.strtoupper(Str::random(8)),
                 'full_name' => $data['customer_name'],
                 'contact_number' => $data['contact_number'],
                 'email' => $data['customer_email'] ?? null,
                 'status' => 'active',
             ]);
         abort_unless($customer->status === 'active', 422, 'This customer account cannot make new reservations.');
-        $idPath = app(VercelBlobStorage::class)->store($request->file('government_id'), 'government-ids', 'private');
         $measurements = collect(['Bust' => $data['bust'] ?? null, 'Waist' => $data['waist'] ?? null, 'Hips' => $data['hips'] ?? null, 'Length' => $data['length'] ?? null])
-            ->filter(fn($value) => $value !== null)->map(fn($value, $key) => $key . ': ' . $value . ' cm')->values()->join('; ');
+            ->filter(fn ($value) => $value !== null)->map(fn ($value, $key) => $key.': '.$value.' cm')->values()->join('; ');
 
         // Fall back to the staff cart when the form did not carry explicit ids,
         // so the Shopee-style "reserve everything in the cart" flow always works.
         $gownIds = array_values(array_filter((array) ($data['gown_ids'] ?? [])));
+        $reservationSource = $data['reservation_source'] ?? 'cart';
+        if ($reservationSource === 'single' && count($gownIds) !== 1) {
+            throw ValidationException::withMessages(['gown_ids' => 'Reserve Now must contain exactly one gown.']);
+        }
         if ($gownIds === []) {
             $gownIds = $this->reservationCart()->ids();
         }
@@ -171,88 +263,105 @@ class ManagementController extends Controller
             throw ValidationException::withMessages(['gown_ids' => 'Add at least one gown before saving this reservation.']);
         }
 
-        $reservation = DB::transaction(function () use ($request, $data, $gownIds, $customer, $idPath, $measurements, $lateFeePerDay) {
-            $gowns = Gown::whereIn('id', $gownIds)->lockForUpdate()->get();
-            if ($gowns->count() !== count(array_unique($gownIds))) {
-                throw ValidationException::withMessages(['gown_ids' => 'One of the selected gowns could not be found.']);
-            }
-            foreach ($gowns as $gown) {
-                abort_unless($gown->status === 'available', 422, $gown->name . ' is not currently available for new reservations.');
-                $overlap = Reservation::with('gownReturn')->whereNotIn('status', ['cancelled', 'rejected'])
-                    ->whereHas('items', fn($items) => $items->where('gown_id', $gown->id))->get()
-                    ->contains(function ($existing) use ($data) {
-                        $end = $existing->gownReturn?->actual_return_date ?? $existing->return_date;
-                        return Carbon::parse($existing->pickup_date)->startOfDay()->lte(Carbon::parse($data['return_date'])->startOfDay())
-                            && Carbon::parse($end)->startOfDay()->gte(Carbon::parse($data['pickup_date'])->startOfDay());
-                    });
-                if ($overlap)
-                    throw ValidationException::withMessages(['gown_ids' => $gown->name . ' is already booked or in its cleaning period for those dates.']);
-            }
+        $idPath = app(VercelBlobStorage::class)->store($request->file('government_id'), 'government-ids', 'private');
+        try {
+            $reservation = DB::transaction(function () use ($request, $data, $gownIds, $customer, $idPath, $measurements, $lateFeePerDay) {
+                $gowns = Gown::whereIn('id', $gownIds)->lockForUpdate()->get();
+                if ($gowns->count() !== count(array_unique($gownIds))) {
+                    throw ValidationException::withMessages(['gown_ids' => 'One of the selected gowns could not be found.']);
+                }
+                foreach ($gowns as $gown) {
+                    abort_unless(in_array($gown->status, ['available', 'reserved'], true), 422, $gown->name.' cannot be reserved at this time.');
+                    abort_if($gown->archived_at !== null, 422, $gown->name.' is no longer in the collection.');
+                    $overlap = Reservation::with('gownReturn')->whereNotIn('status', ['cancelled', 'rejected'])
+                        ->whereHas('items', fn ($items) => $items->where('gown_id', $gown->id))->get()
+                        ->contains(function ($existing) use ($data) {
+                            $end = CustomerReservationController::gownBlockedThrough(
+                                Carbon::parse($existing->gownReturn?->actual_return_date ?? $existing->return_date)
+                            );
 
-            $total = round($gowns->sum(fn($gown) => (float) $gown->rental_price), 2);
-            if ((float) $data['payment_amount'] > $total)
-                throw ValidationException::withMessages(['payment_amount' => 'Payment cannot exceed the rental fee.']);
-            if ((float) $data['payment_amount'] < $total && (float) $data['payment_amount'] <= 500)
-                throw ValidationException::withMessages(['payment_amount' => 'A down payment must be greater than ₱500.00.']);
-            $booking = Reservation::create([
-                'reservation_code' => 'SB-' . now()->format('ymd') . '-' . strtoupper(Str::random(5)),
-                'customer_id' => $customer->id,
-                'created_by' => $request->user()->id,
-                'pickup_date' => $data['pickup_date'],
-                'return_date' => $data['return_date'],
-                'rental_total' => $total,
-                'security_deposit_total' => 0,
-                'late_fee_per_day' => $lateFeePerDay,
-                'grand_total' => $total,
-                'amount_paid' => $data['payment_amount'],
-                'balance' => $total - (float) $data['payment_amount'],
-                'status' => 'confirmed',
-                'measurements' => $measurements ?: null,
-                'government_id_photo_path' => $idPath,
-                'physical_id_photo_path' => $idPath,
-                'id_safe_slot' => $data['id_safe_slot'],
-                'agreement_accepted_at' => now(),
-                'collateral_status' => 'held',
-            ]);
-            $booking->items()->createMany(
-                $gowns->map(fn($gown) => [
-                    'gown_id' => $gown->id,
-                    'rental_price' => (float) $gown->rental_price,
-                    'security_deposit' => 0,
-                    'quantity' => 1,
-                ])->all()
-            );
-            Payment::create([
-                'reservation_id' => $booking->id,
-                'customer_id' => $customer->id,
-                'payment_reference' => 'PAY-' . now()->format('ymd') . '-' . strtoupper(Str::random(6)),
-                'payment_type' => (float) $data['payment_amount'] < $total ? 'downpayment' : 'rental_balance',
-                'payment_method' => $data['payment_method'],
-                'amount' => $data['payment_amount'],
-                'status' => 'verified',
-                'verified_by' => $request->user()->id,
-                'verified_at' => now(),
-                'remarks' => (float) $data['payment_amount'] < $total ? 'Non-refundable in-store down payment.' : 'Full in-store rental payment.',
-            ]);
-            return $booking;
-        });
+                            return Carbon::parse($existing->pickup_date)->startOfDay()->lte(Carbon::parse($data['return_date'])->startOfDay())
+                                && $end->gte(Carbon::parse($data['pickup_date'])->startOfDay());
+                        });
+                    if ($overlap) {
+                        throw ValidationException::withMessages(['gown_ids' => $gown->name.' is already booked or in its cleaning period for those dates.']);
+                    }
+                }
 
-        $this->reservationCart()->clear();
+                $total = round($gowns->sum(fn ($gown) => (float) $gown->rental_price), 2);
+                $paymentAmount = (float) $data['payment_amount'];
+                if ($paymentAmount > $total) {
+                    throw ValidationException::withMessages(['payment_amount' => 'Payment cannot exceed the rental fee.']);
+                }
+                if ($data['payment_option'] === 'downpayment' && ($paymentAmount <= 500 || $paymentAmount >= $total)) {
+                    throw ValidationException::withMessages(['payment_amount' => 'A down payment must be greater than ₱500.00 and less than the total rental fee.']);
+                }
+                if ($data['payment_option'] === 'full' && round($paymentAmount, 2) !== $total) {
+                    throw ValidationException::withMessages(['payment_amount' => 'Full payment must equal the total rental fee. Choose down payment to enter a smaller amount.']);
+                }
+                $booking = Reservation::create([
+                    'reservation_code' => 'SB-'.now()->format('ymd').'-'.strtoupper(Str::random(5)),
+                    'customer_id' => $customer->id,
+                    'created_by' => $request->user()->id,
+                    'pickup_date' => $data['pickup_date'],
+                    'return_date' => $data['return_date'],
+                    'rental_total' => $total,
+                    'security_deposit_total' => 0,
+                    'late_fee_per_day' => $lateFeePerDay,
+                    'grand_total' => $total,
+                    'amount_paid' => 0,
+                    'balance' => $total,
+                    'status' => 'pending',
+                    'measurements' => $measurements ?: null,
+                    'government_id_photo_path' => $idPath,
+                    'agreement_version' => CustomerReservationController::AGREEMENT_VERSION,
+                    'agreement_accepted_at' => now(),
+                    'agreement_accepted_ip' => $request->ip(),
+                    'collateral_status' => 'not_received',
+                ]);
+                $booking->items()->createMany(
+                    $gowns->map(fn ($gown) => [
+                        'gown_id' => $gown->id,
+                        'rental_price' => (float) $gown->rental_price,
+                        'security_deposit' => 0,
+                        'quantity' => 1,
+                    ])->all()
+                );
+                Payment::create([
+                    'reservation_id' => $booking->id,
+                    'customer_id' => $customer->id,
+                    'payment_reference' => 'PAY-'.now()->format('ymd').'-'.strtoupper(Str::random(6)),
+                    'payment_type' => $data['payment_option'] === 'downpayment' ? 'downpayment' : 'rental_balance',
+                    'payment_method' => $data['payment_method'],
+                    'amount' => $paymentAmount,
+                    'status' => 'pending',
+                    'remarks' => 'Cash payment awaiting staff confirmation.',
+                ]);
 
-        return redirect()->route($request->user()->role . '.reservations')->with('success', 'In-store reservation ' . $reservation->reservation_code . ' created and payment recorded.');
+                return $booking;
+            });
+        } catch (\Throwable $exception) {
+            app(VercelBlobStorage::class)->delete($idPath, 'private');
+            throw $exception;
+        }
+
+        if ($reservationSource === 'cart') {
+            $this->reservationCart()->clear();
+        }
+
+        return redirect()->route($request->user()->role.'.reservations')->with('success', 'In-store reservation '.$reservation->reservation_code.' submitted for staff review.');
     }
 
     public function releaseGown(Request $request, Reservation $reservation)
     {
         abort_unless(in_array($reservation->status, ['confirmed', 'ready_for_pickup'], true), 422, 'Only confirmed reservations can be released.');
-        abort_if($reservation->pickup_date->isFuture(), 422, 'This rental cannot be released before its pickup date.');
         $data = $request->validate([
             'condition_before' => ['required', Rule::in(['excellent', 'good', 'fair', 'damaged'])],
             'notes' => ['nullable', 'string', 'max:1000'],
             'physical_id_photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:4096'],
             'id_safe_slot' => ['required', 'string', 'max:80'],
         ]);
-        if (!$reservation->physical_id_photo_path && !$request->hasFile('physical_id_photo')) {
+        if (! $reservation->physical_id_photo_path && ! $request->hasFile('physical_id_photo')) {
             throw ValidationException::withMessages(['physical_id_photo' => 'Capture a photo of the physical ID before storing it.']);
         }
         $physicalIdPath = $request->hasFile('physical_id_photo')
@@ -267,17 +376,23 @@ class ManagementController extends Controller
                 'release_time' => now()->format('H:i:s'),
             ]);
             $reservation->update(['status' => 'released', 'physical_id_photo_path' => $physicalIdPath, 'id_safe_slot' => $data['id_safe_slot'], 'collateral_status' => 'held']);
-            foreach ($reservation->items()->with('gown')->get() as $item)
-                $item->gown?->update(['status' => 'rented']);
         });
+
         return back()->with('success', 'Gown handoff recorded. Rental is now active.');
     }
 
     public function returnGown(Request $request, Reservation $reservation)
     {
         abort_unless(in_array($reservation->status, ['released', 'overdue'], true), 422, 'Only active rentals can be returned.');
+        $earliestReturnDate = $reservation->gownRelease?->release_date ?? $reservation->pickup_date;
         $data = $request->validate([
-            'condition_after' => ['required', Rule::in(['excellent', 'good', 'fair', 'damaged'])],
+            'actual_return_date' => [
+                'required',
+                'date',
+                'after_or_equal:'.$earliestReturnDate->toDateString(),
+                'before_or_equal:today',
+            ],
+            'condition_after' => ['required', Rule::in(['excellent', 'good', 'repair', 'damaged'])],
             'notes' => ['nullable', 'string', 'max:1000'],
             'repair_cost' => ['nullable', 'numeric', 'min:0', 'max:1000000'],
             'purchased_gown_ids' => ['sometimes', 'array'],
@@ -285,12 +400,13 @@ class ManagementController extends Controller
             'purchase_amounts' => ['sometimes', 'array'],
             'purchase_amounts.*' => ['nullable', 'numeric', 'min:0.01', 'max:1000000'],
         ]);
-        $lateDays = max(0, Carbon::parse($reservation->return_date)->startOfDay()->diffInDays(today(), false));
+        $actualReturnDate = Carbon::parse($data['actual_return_date'])->startOfDay();
+        $lateDays = max(0, Carbon::parse($reservation->return_date)->startOfDay()->diffInDays($actualReturnDate, false));
         $purchasedGownIds = collect($data['purchased_gown_ids'] ?? [])
-            ->map(fn($id) => (int) $id)
+            ->map(fn ($id) => (int) $id)
             ->unique()
             ->values();
-        $reservationGownIds = $reservation->items()->pluck('gown_id')->map(fn($id) => (int) $id);
+        $reservationGownIds = $reservation->items()->pluck('gown_id')->map(fn ($id) => (int) $id);
         if ($purchasedGownIds->diff($reservationGownIds)->isNotEmpty()) {
             throw ValidationException::withMessages([
                 'purchased_gown_ids' => 'Only gowns in this reservation can be marked as purchased.',
@@ -300,15 +416,15 @@ class ManagementController extends Controller
         foreach ($purchasedGownIds as $gownId) {
             if (empty($data['purchase_amounts'][$gownId])) {
                 throw ValidationException::withMessages([
-                    'purchase_amounts.' . $gownId => 'Enter the agreed sale amount for each purchased gown.',
+                    'purchase_amounts.'.$gownId => 'Enter the agreed sale amount for each purchased gown.',
                 ]);
             }
         }
 
-        DB::transaction(function () use ($request, $reservation, $data, $lateDays, $purchasedGownIds) {
+        DB::transaction(function () use ($request, $reservation, $data, $lateDays, $actualReturnDate, $purchasedGownIds) {
             $rentalReturn = GownReturn::updateOrCreate(['reservation_id' => $reservation->id], [
                 'processed_by' => $request->user()->id,
-                'actual_return_date' => today(),
+                'actual_return_date' => $actualReturnDate,
                 'actual_return_time' => now()->format('H:i:s'),
                 'condition_after' => $data['condition_after'],
                 'late_days' => $lateDays,
@@ -317,8 +433,9 @@ class ManagementController extends Controller
             $extraCharges = 0;
             foreach ($reservation->items()->with('gown')->get() as $item) {
                 $gown = $item->gown;
-                if (!$gown)
+                if (! $gown) {
                     continue;
+                }
                 $customerPurchased = $purchasedGownIds->contains((int) $gown->id);
                 if ($data['condition_after'] === 'damaged') {
                     $gown->update([
@@ -326,18 +443,32 @@ class ManagementController extends Controller
                         'status' => $customerPurchased ? 'retired' : 'damaged',
                     ]);
                     $repairCost = (float) ($data['repair_cost'] ?? 0);
-                    DamageReport::create(['gown_return_id' => $rentalReturn->id, 'gown_id' => $gown->id, 'damage_type' => 'Rental return damage', 'description' => $data['notes'] ?? 'Damage recorded during return inspection.', 'repair_cost' => $repairCost, 'final_repair_cost' => $repairCost, 'discovered_at' => today(), 'severity' => 'moderate']);
-                    if ($repairCost > 0 && !$customerPurchased) {
+                    DamageReport::create(['gown_return_id' => $rentalReturn->id, 'gown_id' => $gown->id, 'damage_type' => 'Rental return damage', 'description' => $data['notes'] ?? 'Damage recorded during return inspection.', 'repair_cost' => $repairCost, 'final_repair_cost' => $repairCost, 'discovered_at' => $actualReturnDate, 'severity' => 'moderate']);
+                    if ($repairCost > 0 && ! $customerPurchased) {
                         Penalty::create(['reservation_id' => $reservation->id, 'gown_return_id' => $rentalReturn->id, 'penalty_type' => 'damage_fee', 'amount' => $repairCost, 'status' => 'pending']);
                         $extraCharges += $repairCost;
+                    }
+                } elseif ($data['condition_after'] === 'repair') {
+                    $gown->update(['status' => $customerPurchased ? 'retired' : 'under_maintenance']);
+                    if (! $customerPurchased) {
+                        MaintenanceRecord::create([
+                            'gown_id' => $gown->id,
+                            'processed_by' => $request->user()->id,
+                            'maintenance_type' => 'Repair',
+                            'description' => $data['notes'] ?: 'Repair required after rental return inspection.',
+                            'cost' => (float) ($data['repair_cost'] ?? 0),
+                            'maintenance_date' => $actualReturnDate,
+                            'status' => 'pending',
+                            'notes' => 'Created after reservation '.$reservation->reservation_code,
+                        ]);
                     }
                 } else {
                     $gown->update([
                         'condition' => $data['condition_after'],
                         'status' => $customerPurchased ? 'retired' : 'for_cleaning',
                     ]);
-                    if (!$customerPurchased) {
-                        CleaningRecord::create(['gown_id' => $gown->id, 'processed_by' => $request->user()->id, 'cleaning_date' => today(), 'cleaning_type' => 'Post-rental cleaning', 'status' => 'pending', 'notes' => 'Created after reservation ' . $reservation->reservation_code]);
+                    if (! $customerPurchased) {
+                        CleaningRecord::create(['gown_id' => $gown->id, 'processed_by' => $request->user()->id,                         'cleaning_date' => $actualReturnDate, 'cleaning_type' => 'Post-rental cleaning', 'status' => 'pending', 'notes' => 'Created after reservation '.$reservation->reservation_code]);
                     }
                 }
 
@@ -362,8 +493,9 @@ class ManagementController extends Controller
                 }
             }
             $lateFee = (float) $reservation->late_fee_per_day;
-            if ($lateFee <= 0)
+            if ($lateFee <= 0) {
                 $lateFee = (float) SystemSetting::where('setting_key', 'late_fee_per_day')->value('setting_value');
+            }
             if ($lateDays > 0 && $lateFee > 0) {
                 $lateCharge = $lateDays * $lateFee;
                 Penalty::create(['reservation_id' => $reservation->id, 'gown_return_id' => $rentalReturn->id, 'penalty_type' => 'late_return', 'amount' => $lateCharge, 'status' => 'pending']);
@@ -371,7 +503,8 @@ class ManagementController extends Controller
             }
             $reservation->update(['status' => 'returned', 'grand_total' => (float) $reservation->grand_total + $extraCharges, 'balance' => (float) $reservation->balance + $extraCharges]);
         });
-        return redirect()->route($request->user()->role . '.rentals')->with('success', 'Return inspection recorded. Any cleaning or charges are now listed on the account.');
+
+        return redirect()->route($request->user()->role.'.rentals')->with('success', 'Return inspection recorded. Any cleaning or charges are now listed on the account.');
     }
 
     public function releaseIdCollateral(Request $request, Reservation $reservation)
@@ -380,6 +513,7 @@ class ManagementController extends Controller
         abort_if((float) $reservation->balance > 0, 422, 'Clear all rental, damage, and late charges before releasing the ID.');
         abort_unless($reservation->collateral_status === 'held', 422, 'There is no held ID collateral to release.');
         $reservation->update(['collateral_status' => 'released']);
+
         return back()->with('success', 'Original ID collateral released to the customer.');
     }
 
@@ -390,6 +524,7 @@ class ManagementController extends Controller
         if ($cleaning->gown && $cleaning->gown->condition !== 'damaged' && $cleaning->gown->status === 'for_cleaning') {
             $cleaning->gown->update(['status' => 'available']);
         }
+
         return back()->with('success', 'Cleaning completed; the gown is available again.');
     }
 
@@ -404,8 +539,52 @@ class ManagementController extends Controller
                 ->latest()
                 ->paginate($perPage)
                 ->withQueryString(),
-            'gowns' => Gown::whereNull('archived_at')->whereNotIn('status', ['retired', 'rented'])->orderBy('name')->get(),
             'base' => request()->user()->role,
+        ]);
+    }
+
+    public function maintenanceGowns(Request $request)
+    {
+        $filters = $request->validate([
+            'q' => ['nullable', 'string', 'max:120'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'selected_id' => ['nullable', 'integer', 'exists:gowns,id'],
+        ]);
+
+        $query = Gown::whereNull('archived_at')
+            ->where('status', '!=', 'retired')
+            ->when($filters['q'] ?? null, function ($query, $term) {
+                $query->where(fn ($search) => $search
+                    ->where('name', 'like', '%'.$term.'%')
+                    ->orWhere('gown_code', 'like', '%'.$term.'%'));
+            })
+            ->orderBy('gown_code');
+
+        $gowns = $query->paginate(5)->withQueryString();
+        $selected = isset($filters['selected_id'])
+            ? Gown::whereNull('archived_at')
+                ->where('status', '!=', 'retired')
+                ->find($filters['selected_id'])
+            : null;
+
+        return response()->json([
+            'data' => $gowns->getCollection()->map(fn (Gown $gown) => [
+                'id' => $gown->id,
+                'gown_code' => $gown->gown_code,
+                'name' => $gown->name,
+                'status' => $gown->status,
+                'image_url' => $gown->image_url,
+            ]),
+            'current_page' => $gowns->currentPage(),
+            'last_page' => $gowns->lastPage(),
+            'total' => $gowns->total(),
+            'selected' => $selected ? [
+                'id' => $selected->id,
+                'gown_code' => $selected->gown_code,
+                'name' => $selected->name,
+                'status' => $selected->status,
+                'image_url' => $selected->image_url,
+            ] : null,
         ]);
     }
 
@@ -422,9 +601,9 @@ class ManagementController extends Controller
 
         DB::transaction(function () use ($request, $data) {
             $gown = Gown::whereNull('archived_at')->whereKey($data['gown_id'])->lockForUpdate()->firstOrFail();
-            abort_if(in_array($gown->status, ['retired', 'rented'], true), 422, 'This gown cannot be sent to maintenance right now.');
+            abort_if($gown->status === 'retired', 422, 'This gown cannot be sent to maintenance right now.');
             $activeRental = Reservation::whereIn('status', ['pending', 'awaiting_payment', 'confirmed', 'ready_for_pickup', 'released', 'overdue'])
-                ->whereHas('items', fn($items) => $items->where('gown_id', $gown->id))
+                ->whereHas('items', fn ($items) => $items->where('gown_id', $gown->id))
                 ->exists();
             abort_if($activeRental, 422, 'This gown is linked to an active reservation and cannot be sent to maintenance.');
 
@@ -452,17 +631,18 @@ class ManagementController extends Controller
             $record->update([
                 'status' => 'completed',
                 'processed_by' => $request->user()->id,
-                'notes' => trim(($record->notes ? $record->notes . "\n" : '') . ($data['completion_notes'] ?? '')) ?: null,
+                'notes' => trim(($record->notes ? $record->notes."\n" : '').($data['completion_notes'] ?? '')) ?: null,
             ]);
 
             $gown = Gown::whereKey($record->gown_id)->lockForUpdate()->first();
             if ($gown) {
                 $gown->condition = $data['condition'];
                 $hasPendingMaintenance = MaintenanceRecord::where('gown_id', $gown->id)->where('status', 'pending')->exists();
-                if (!$hasPendingMaintenance) {
+                if (! $hasPendingMaintenance) {
                     $gown->status = $data['condition'] === 'damaged' ? 'damaged' : 'available';
                 }
                 $gown->save();
+                DamageReport::ensureForDamagedGown($gown);
             }
         });
 
@@ -480,11 +660,13 @@ class ManagementController extends Controller
                 $query->where('status', $status);
             }
         }
-        if ($request->filled('q'))
+        if ($request->filled('q')) {
             $query->where(function ($q) use ($request) {
                 $term = $request->string('q');
-                $q->where('reservation_code', 'like', "%$term%")->orWhereHas('customer', fn($c) => $c->where('full_name', 'like', "%$term%"));
+                $q->where('reservation_code', 'like', "%$term%")->orWhereHas('customer', fn ($c) => $c->where('full_name', 'like', "%$term%"));
             });
+        }
+
         return view('management.reservations', [
             'reservations' => $query->paginate($this->pageSize($request))->withQueryString(),
             'base' => $request->user()->role,
@@ -547,13 +729,15 @@ class ManagementController extends Controller
                 $conflict = Reservation::with('gownReturn')
                     ->where('id', '!=', $reservation->id)
                     ->whereNotIn('status', ['cancelled', 'rejected'])
-                    ->whereHas('items', fn($items) => $items->whereIn('gown_id', $gownIds))
+                    ->whereHas('items', fn ($items) => $items->whereIn('gown_id', $gownIds))
                     ->get()
                     ->contains(function (Reservation $existing) use ($pickupDate, $returnDate) {
-                        $occupiedThrough = $existing->gownReturn?->actual_return_date ?? $existing->return_date;
+                        $occupiedThrough = CustomerReservationController::gownBlockedThrough(
+                            Carbon::parse($existing->gownReturn?->actual_return_date ?? $existing->return_date)
+                        );
 
                         return Carbon::parse($existing->pickup_date)->startOfDay()->lte($returnDate)
-                            && Carbon::parse($occupiedThrough)->startOfDay()->gte($pickupDate);
+                            && $occupiedThrough->gte($pickupDate);
                     });
 
                 if ($conflict) {
@@ -573,10 +757,11 @@ class ManagementController extends Controller
             AuditLog::create([
                 'user_id' => $request->user()->id,
                 'action' => 'reservation.approved',
-                'description' => "Reservation {$reservation->reservation_code}: Approved by " . $request->user()->name . '.',
+                'description' => "Reservation {$reservation->reservation_code}: Approved by ".$request->user()->name.'.',
                 'ip_address' => $request->ip(),
             ]);
         }
+
         return back()->with('success', 'Reservation status updated.');
     }
 
@@ -585,10 +770,11 @@ class ManagementController extends Controller
         $query = Customer::withCount('reservations')->with('reservations')->latest();
         if (request()->filled('q')) {
             $term = request('q');
-            $query->where(fn($builder) => $builder->where('full_name', 'like', "%$term%")
+            $query->where(fn ($builder) => $builder->where('full_name', 'like', "%$term%")
                 ->orWhere('email', 'like', "%$term%")
                 ->orWhere('contact_number', 'like', "%$term%"));
         }
+
         return view('management.customers', [
             'customers' => $query->paginate($this->pageSize($request))->withQueryString(),
         ]);
@@ -615,10 +801,10 @@ class ManagementController extends Controller
     {
         $reservations = $customer->reservations()
             ->with([
-                'items.gown',
+                'items.gown.category',
                 'gownPurchases.gown',
-                'payments' => fn($query) => $query->latest(),
-                'penalties' => fn($query) => $query->latest(),
+                'payments' => fn ($query) => $query->latest(),
+                'penalties' => fn ($query) => $query->latest(),
                 'gownReturn',
                 'cancelledBy',
             ])
@@ -630,7 +816,7 @@ class ManagementController extends Controller
         foreach ($reservations as $reservation) {
             $actualLateDays = (int) ($reservation->gownReturn?->late_days ?? 0);
             $currentLateDays = 0;
-            if (!$reservation->gownReturn && in_array($reservation->status, ['released', 'overdue'], true) && $reservation->return_date?->isBefore(today())) {
+            if (! $reservation->gownReturn && in_array($reservation->status, ['released', 'overdue'], true) && $reservation->return_date?->isBefore(today())) {
                 $currentLateDays = Carbon::parse($reservation->return_date)->startOfDay()->diffInDays(today(), false);
             }
             $reservation->display_late_days = max($actualLateDays, $currentLateDays);
@@ -641,7 +827,7 @@ class ManagementController extends Controller
                 ->where('status', 'verified')
                 ->sum('amount');
             $reservation->cancellation_history = $reservation->status === 'cancelled'
-                ? AuditLog::with('user')->where('description', 'like', '%' . $reservation->reservation_code . '%')->oldest()->get()
+                ? AuditLog::with('user')->where('description', 'like', '%'.$reservation->reservation_code.'%')->oldest()->get()
                 : collect();
         }
 
@@ -649,7 +835,7 @@ class ManagementController extends Controller
             'customer' => $customer,
             'reservations' => $reservations,
             'reservationCount' => $customer->reservations()->count(),
-            'verifiedPaid' => Payment::whereHas('reservation', fn($query) => $query->where('customer_id', $customer->id))
+            'verifiedPaid' => Payment::whereHas('reservation', fn ($query) => $query->where('customer_id', $customer->id))
                 ->where('status', 'verified')
                 ->sum('amount'),
             'outstandingBalance' => $customer->reservations()->sum('balance'),
@@ -669,24 +855,24 @@ class ManagementController extends Controller
         ]);
 
         $query = Payment::with(['reservation', 'customer'])->latest();
-        if (!empty($filters['q'])) {
+        if (! empty($filters['q'])) {
             $term = $filters['q'];
             $query->where(function ($search) use ($term) {
-                $search->where('payment_reference', 'like', '%' . $term . '%')
-                    ->orWhereHas('customer', fn($customer) => $customer->where('full_name', 'like', '%' . $term . '%'))
-                    ->orWhereHas('reservation', fn($reservation) => $reservation->where('reservation_code', 'like', '%' . $term . '%'));
+                $search->where('payment_reference', 'like', '%'.$term.'%')
+                    ->orWhereHas('customer', fn ($customer) => $customer->where('full_name', 'like', '%'.$term.'%'))
+                    ->orWhereHas('reservation', fn ($reservation) => $reservation->where('reservation_code', 'like', '%'.$term.'%'));
             });
         }
-        if (!empty($filters['status'])) {
+        if (! empty($filters['status'])) {
             $query->where('status', $filters['status']);
         }
-        if (!empty($filters['method'])) {
+        if (! empty($filters['method'])) {
             $query->where('payment_method', $filters['method']);
         }
-        if (!empty($filters['from'])) {
+        if (! empty($filters['from'])) {
             $query->whereDate('created_at', '>=', $filters['from']);
         }
-        if (!empty($filters['to'])) {
+        if (! empty($filters['to'])) {
             $query->whereDate('created_at', '<=', $filters['to']);
         }
 
@@ -737,6 +923,7 @@ class ManagementController extends Controller
                 'remarks' => $data['remarks'] ?? $locked->remarks,
             ]);
         });
+
         return back()->with('success', 'Payment review saved.');
     }
 
@@ -747,6 +934,7 @@ class ManagementController extends Controller
         } else {
             abort_unless(in_array($request->user()->role, ['owner', 'employee'], true), 403);
         }
+
         return app(VercelBlobStorage::class)->privateFileResponse($payment->proof_of_payment);
     }
 
@@ -755,12 +943,13 @@ class ManagementController extends Controller
         abort_unless(in_array($request->user()->role, ['owner', 'employee'], true), 403);
         abort_unless(in_array($type, ['digital', 'physical'], true), 404);
         $path = $type === 'physical' ? $reservation->physical_id_photo_path : $reservation->government_id_photo_path;
+
         return app(VercelBlobStorage::class)->privateFileResponse($path);
     }
 
     public function recordPayment(Request $request, Reservation $reservation)
     {
-        $data = $request->validate(['amount' => ['required', 'numeric', $request->input('payment_type') === 'downpayment' ? 'gt:500' : 'gt:0', 'lte:' . (float) $reservation->balance], 'payment_method' => ['required', Rule::in(['cash'])], 'payment_type' => ['required', Rule::in(['downpayment', 'rental_balance', 'other'])], 'remarks' => ['nullable', 'string', 'max:500']]);
+        $data = $request->validate(['amount' => ['required', 'numeric', $request->input('payment_type') === 'downpayment' ? 'gt:500' : 'gt:0', 'lte:'.(float) $reservation->balance], 'payment_method' => ['required', Rule::in(['cash'])], 'payment_type' => ['required', Rule::in(['downpayment', 'rental_balance', 'other'])], 'remarks' => ['nullable', 'string', 'max:500']]);
         $reservation->loadMissing('customer');
         $payment = DB::transaction(function () use ($data, $reservation, $request) {
             $lockedReservation = Reservation::whereKey($reservation->id)->lockForUpdate()->firstOrFail();
@@ -771,18 +960,21 @@ class ManagementController extends Controller
             $payment = Payment::create($data + [
                 'reservation_id' => $lockedReservation->id,
                 'customer_id' => $lockedReservation->customer_id,
-                'payment_reference' => 'PAY-' . now()->format('ymd') . '-' . strtoupper(Str::random(6)),
+                'payment_reference' => 'PAY-'.now()->format('ymd').'-'.strtoupper(Str::random(6)),
                 'status' => 'verified',
                 'verified_by' => $request->user()->id,
                 'verified_at' => now(),
             ]);
             $amountPaid = (float) $lockedReservation->amount_paid + (float) $payment->amount;
             $lockedReservation->update(['amount_paid' => $amountPaid, 'balance' => max(0, (float) $lockedReservation->grand_total - $amountPaid)]);
+
             return $payment;
         });
-        if ($payment->payment_type === 'downpayment')
-            $payment->update(['remarks' => trim(($payment->remarks ? $payment->remarks . ' ' : '') . 'Non-refundable down payment.')]);
-        return back()->with('success', 'Payment ' . $payment->payment_reference . ' recorded.');
+        if ($payment->payment_type === 'downpayment') {
+            $payment->update(['remarks' => trim(($payment->remarks ? $payment->remarks.' ' : '').'Non-refundable down payment.')]);
+        }
+
+        return back()->with('success', 'Payment '.$payment->payment_reference.' recorded.');
     }
 
     public function employees(Request $request)
@@ -801,30 +993,30 @@ class ManagementController extends Controller
     {
         $userId = $employee->user_id;
         $activities = collect()
-            ->concat(GownRelease::with('reservation')->where('processed_by', $userId)->get()->map(fn($row) => [
+            ->concat(GownRelease::with('reservation')->where('processed_by', $userId)->get()->map(fn ($row) => [
                 'date' => $row->created_at,
                 'action' => 'Gown released',
-                'description' => 'Reservation ' . ($row->reservation?->reservation_code ?? '—') . ' · ' . ucfirst($row->condition_before) . ' condition at handoff',
+                'description' => 'Reservation '.($row->reservation?->reservation_code ?? '—').' · '.ucfirst($row->condition_before).' condition at handoff',
             ]))
-            ->concat(GownReturn::with('reservation')->where('processed_by', $userId)->get()->map(fn($row) => [
+            ->concat(GownReturn::with('reservation')->where('processed_by', $userId)->get()->map(fn ($row) => [
                 'date' => $row->created_at,
                 'action' => 'Gown returned',
-                'description' => 'Reservation ' . ($row->reservation?->reservation_code ?? '—') . ' · ' . $row->late_days . ' late day(s)',
+                'description' => 'Reservation '.($row->reservation?->reservation_code ?? '—').' · '.$row->late_days.' late day(s)',
             ]))
-            ->concat(CleaningRecord::with('gown')->where('processed_by', $userId)->get()->map(fn($row) => [
+            ->concat(CleaningRecord::with('gown')->where('processed_by', $userId)->get()->map(fn ($row) => [
                 'date' => $row->updated_at ?? $row->created_at,
                 'action' => 'Cleaning updated',
-                'description' => ($row->gown?->name ?? 'Gown') . ' · ' . $row->cleaning_type . ' · ' . ucfirst($row->status),
+                'description' => ($row->gown?->name ?? 'Gown').' · '.$row->cleaning_type.' · '.ucfirst($row->status),
             ]))
-            ->concat(MaintenanceRecord::with('gown')->where('processed_by', $userId)->get()->map(fn($row) => [
+            ->concat(MaintenanceRecord::with('gown')->where('processed_by', $userId)->get()->map(fn ($row) => [
                 'date' => $row->updated_at ?? $row->created_at,
                 'action' => 'Maintenance updated',
-                'description' => ($row->gown?->name ?? 'Gown') . ' · ' . $row->maintenance_type . ' · ' . ucfirst($row->status),
+                'description' => ($row->gown?->name ?? 'Gown').' · '.$row->maintenance_type.' · '.ucfirst($row->status),
             ]))
-            ->concat(Payment::with('reservation')->where('verified_by', $userId)->get()->map(fn($row) => [
+            ->concat(Payment::with('reservation')->where('verified_by', $userId)->get()->map(fn ($row) => [
                 'date' => $row->verified_at ?? $row->updated_at,
                 'action' => 'Payment recorded or verified',
-                'description' => $row->payment_reference . ' · Reservation ' . ($row->reservation?->reservation_code ?? '—') . ' · ₱' . number_format((float) $row->amount, 2),
+                'description' => $row->payment_reference.' · Reservation '.($row->reservation?->reservation_code ?? '—').' · ₱'.number_format((float) $row->amount, 2),
             ]))
             ->sortByDesc('date')->values();
 
@@ -846,14 +1038,16 @@ class ManagementController extends Controller
         $data = $request->validate(['name' => ['required', 'string', 'max:255'], 'email' => ['required', 'email', 'unique:users,email'], 'password' => ['required', 'string', 'min:8'], 'contact_number' => ['nullable', 'string', 'max:40'], 'position' => ['required', 'string', 'max:100']]);
         DB::transaction(function () use ($data) {
             $user = User::create(['name' => $data['name'], 'email' => $data['email'], 'password' => Hash::make($data['password']), 'role' => 'employee']);
-            Employee::create(['user_id' => $user->id, 'employee_code' => 'EMP-' . strtoupper(Str::random(8)), 'full_name' => $data['name'], 'contact_number' => $data['contact_number'] ?? null, 'position' => $data['position'], 'status' => 'active']);
+            Employee::create(['user_id' => $user->id, 'employee_code' => 'EMP-'.strtoupper(Str::random(8)), 'full_name' => $data['name'], 'contact_number' => $data['contact_number'] ?? null, 'position' => $data['position'], 'status' => 'active']);
         });
+
         return redirect()->route('owner.employees')->with('success', 'Employee account created. Share the login details securely.');
     }
 
     public function toggleEmployee(Employee $employee)
     {
         $employee->update(['status' => $employee->status === 'active' ? 'inactive' : 'active']);
+
         return back()->with('success', 'Employee access updated.');
     }
 
@@ -869,6 +1063,7 @@ class ManagementController extends Controller
             $employee->user()->update(['name' => $data['name'], 'email' => $data['email']]);
             $employee->update(['full_name' => $data['name'], 'contact_number' => $data['contact_number'] ?? null, 'position' => $data['position']]);
         });
+
         return back()->with('success', 'Employee information updated.');
     }
 
@@ -878,15 +1073,15 @@ class ManagementController extends Controller
         $dateRange = [$period['start_date'], $period['end_date']];
         $reservationCount = Reservation::whereBetween(DB::raw('DATE(created_at)'), $dateRange)->count();
         $monthlyCounts = Reservation::whereBetween(DB::raw('DATE(created_at)'), $dateRange)->get(['created_at'])
-            ->groupBy(fn($reservation) => $reservation->created_at->format('Y-m'))
-            ->map(fn($rows) => $rows->count());
+            ->groupBy(fn ($reservation) => $reservation->created_at->format('Y-m'))
+            ->map(fn ($rows) => $rows->count());
         $monthly = $this->reportMonthBuckets($period, $monthlyCounts);
         $popular = Gown::with('category')
-            ->whereHas('reservationItems.reservation', fn($query) => $query->whereBetween(DB::raw('DATE(created_at)'), $dateRange))
+            ->whereHas('reservationItems.reservation', fn ($query) => $query->whereBetween(DB::raw('DATE(created_at)'), $dateRange))
             ->withCount([
-                'reservationItems as reservation_items_count' => fn($query) => $query->whereHas(
+                'reservationItems as reservation_items_count' => fn ($query) => $query->whereHas(
                     'reservation',
-                    fn($reservationQuery) => $reservationQuery->whereBetween(DB::raw('DATE(created_at)'), $dateRange)
+                    fn ($reservationQuery) => $reservationQuery->whereBetween(DB::raw('DATE(created_at)'), $dateRange)
                 ),
             ])->orderByDesc('reservation_items_count')->take(10)->get();
 
@@ -913,13 +1108,13 @@ class ManagementController extends Controller
         $gownCount = Gown::count();
         $availableCount = Gown::where('status', 'available')->count();
         $monthlyCounts = Reservation::whereBetween(DB::raw('DATE(created_at)'), $dateRange)->get(['created_at'])
-            ->groupBy(fn($reservation) => $reservation->created_at->format('Y-m'))
-            ->map(fn($rows) => $rows->count());
+            ->groupBy(fn ($reservation) => $reservation->created_at->format('Y-m'))
+            ->map(fn ($rows) => $rows->count());
         $monthly = $this->reportMonthBuckets($period, $monthlyCounts);
         $popular = Gown::with('category')->withCount([
-            'reservationItems as reservation_items_count' => fn($query) => $query->whereHas(
+            'reservationItems as reservation_items_count' => fn ($query) => $query->whereHas(
                 'reservation',
-                fn($reservationQuery) => $reservationQuery->whereBetween(DB::raw('DATE(created_at)'), $dateRange)
+                fn ($reservationQuery) => $reservationQuery->whereBetween(DB::raw('DATE(created_at)'), $dateRange)
             ),
         ])->having('reservation_items_count', '>', 0)
             ->orderByDesc('reservation_items_count')->take(5)->get();
@@ -930,7 +1125,8 @@ class ManagementController extends Controller
             $writeRow = static function (array $row) use ($stream): void {
                 $row = array_map(static function ($value) {
                     $value = (string) $value;
-                    return preg_match('/^[\x00-\x20]*[=+\-@]/', $value) ? "'" . $value : $value;
+
+                    return preg_match('/^[\x00-\x20]*[=+\-@]/', $value) ? "'".$value : $value;
                 }, $row);
                 fputcsv($stream, $row);
             };
@@ -958,7 +1154,7 @@ class ManagementController extends Controller
             }
 
             fclose($stream);
-        }, 'shyra-business-report-' . $period['start_date'] . '-to-' . $period['end_date'] . '.csv', [
+        }, 'shyra-business-report-'.$period['start_date'].'-to-'.$period['end_date'].'.csv', [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
     }
@@ -971,15 +1167,15 @@ class ManagementController extends Controller
             ->whereBetween(DB::raw('DATE(created_at)'), $dateRange)
             ->oldest()
             ->get();
-        $monthlyCounts = $reservations->groupBy(fn($reservation) => $reservation->created_at->format('Y-m'))
-            ->map(fn($rows) => $rows->count());
+        $monthlyCounts = $reservations->groupBy(fn ($reservation) => $reservation->created_at->format('Y-m'))
+            ->map(fn ($rows) => $rows->count());
         $monthly = $this->reportMonthBuckets($period, $monthlyCounts);
         $popular = Gown::with('category')
-            ->whereHas('reservationItems.reservation', fn($query) => $query->whereBetween(DB::raw('DATE(created_at)'), $dateRange))
+            ->whereHas('reservationItems.reservation', fn ($query) => $query->whereBetween(DB::raw('DATE(created_at)'), $dateRange))
             ->withCount([
-                'reservationItems as reservation_items_count' => fn($query) => $query->whereHas(
+                'reservationItems as reservation_items_count' => fn ($query) => $query->whereHas(
                     'reservation',
-                    fn($reservationQuery) => $reservationQuery->whereBetween(DB::raw('DATE(created_at)'), $dateRange)
+                    fn ($reservationQuery) => $reservationQuery->whereBetween(DB::raw('DATE(created_at)'), $dateRange)
                 ),
             ])->orderByDesc('reservation_items_count')->take(10)->get();
         $payments = Payment::with(['customer', 'reservation'])
@@ -993,7 +1189,7 @@ class ManagementController extends Controller
         $monthsInPeriod = max(count($monthly), 1);
         $reservationStatusCounts = $reservations->countBy('status');
         $paymentStatusTotals = collect(['verified', 'pending', 'rejected', 'refunded'])
-            ->mapWithKeys(fn($status) => [$status => (float) $payments->where('status', $status)->sum('amount')]);
+            ->mapWithKeys(fn ($status) => [$status => (float) $payments->where('status', $status)->sum('amount')]);
         $shopName = SystemSetting::where('setting_key', 'shop_name')->value('setting_value') ?: 'Shyra Beautique';
         $contactEmail = SystemSetting::where('setting_key', 'contact_email')->value('setting_value');
         // The real brand logo. This previously pointed at shyra-logo.jpg, which was
@@ -1005,7 +1201,7 @@ class ManagementController extends Controller
         // required", so only pass the logo when GD can actually handle it.
         $logoDataUri = null;
         if (is_file($logoPath) && extension_loaded('gd')) {
-            $logoDataUri = 'data:image/png;base64,' . base64_encode((string) file_get_contents($logoPath));
+            $logoDataUri = 'data:image/png;base64,'.base64_encode((string) file_get_contents($logoPath));
         }
 
         $pdf = Pdf::loadView('management.reports-pdf', [
@@ -1028,30 +1224,31 @@ class ManagementController extends Controller
             'popularMax' => (int) ($popular->max('reservation_items_count') ?? 0),
             'gownCount' => $gownCount,
             'availableCount' => $availableCount,
-            'rentedCount' => (int) $gownsByStatus->get('rented', 0),
             'reservedCount' => (int) $gownsByStatus->get('reserved', 0),
             'maintenanceCount' => (int) $gownsByStatus->get('under_maintenance', 0) + (int) $gownsByStatus->get('for_cleaning', 0),
             'availabilityRate' => $gownCount > 0 ? ($availableCount / $gownCount) * 100 : 0,
             'paymentTotal' => (float) $paymentStatusTotals->get('verified', 0),
             'paymentCount' => $payments->count(),
             'paymentStatusTotals' => $paymentStatusTotals,
+            'reservationStatusCounts' => $reservationStatusCounts,
+            'gownsByStatus' => $gownsByStatus,
             'payments' => $payments,
             'activeRentalCount' => $reservations->whereIn('status', ['released', 'overdue'])->count(),
             'releasedRentalCount' => $reservations->where('status', 'released')->count(),
             'overdueRentalCount' => $reservations->where('status', 'overdue')->count(),
-        ])->setPaper('a4', 'portrait')->setOptions([
-                    'defaultFont' => 'DejaVu Sans',
-                    'isRemoteEnabled' => false,
-                    'isHtml5ParserEnabled' => true,
-                ]);
+        ])->setPaper('a4', 'landscape')->setOptions([
+            'defaultFont' => 'DejaVu Sans',
+            'isRemoteEnabled' => false,
+            'isHtml5ParserEnabled' => true,
+        ]);
 
         $pdf->render();
         $dompdf = $pdf->getDomPDF();
         $font = $dompdf->getFontMetrics()->getFont('DejaVu Sans', 'normal');
-        $dompdf->getCanvas()->page_text(36, 815, $shopName . ' · Confidential', $font, 8, [0.38, 0.28, 0.3]);
-        $dompdf->getCanvas()->page_text(492, 815, 'Page {PAGE_NUM} of {PAGE_COUNT}', $font, 8, [0.38, 0.28, 0.3]);
+        $dompdf->getCanvas()->page_text(36, 570, $shopName.' · Confidential', $font, 8, [0.38, 0.28, 0.3]);
+        $dompdf->getCanvas()->page_text(760, 570, 'Page {PAGE_NUM} of {PAGE_COUNT}', $font, 8, [0.38, 0.28, 0.3]);
 
-        return $pdf->download('shyra-business-report-' . $period['start_date'] . '-to-' . $period['end_date'] . '.pdf');
+        return $pdf->download('shyra-business-report-'.$period['start_date'].'-to-'.$period['end_date'].'.pdf');
     }
 
     private function resolveReportPeriod(Request $request): array
@@ -1079,7 +1276,7 @@ class ManagementController extends Controller
             'this_week' => 'This week',
             'this_month' => 'This month',
             'this_year' => 'This year',
-            default => Carbon::parse($startDate)->format('M j, Y') . ' to ' . Carbon::parse($endDate)->format('M j, Y'),
+            default => Carbon::parse($startDate)->format('M j, Y').' to '.Carbon::parse($endDate)->format('M j, Y'),
         };
 
         return [
@@ -1112,14 +1309,17 @@ class ManagementController extends Controller
     public function settings()
     {
         $settings = SystemSetting::pluck('setting_value', 'setting_key');
+
         return view('management.settings', compact('settings'));
     }
 
     public function saveSettings(Request $request)
     {
         $data = $request->validate(['shop_name' => ['required', 'string', 'max:120'], 'contact_email' => ['nullable', 'email', 'max:255'], 'contact_number' => ['nullable', 'string', 'max:40'], 'late_fee_per_day' => ['required', 'numeric', 'min:0.01', 'max:100000']]);
-        foreach ($data as $key => $value)
+        foreach ($data as $key => $value) {
             SystemSetting::updateOrCreate(['setting_key' => $key], ['setting_value' => (string) $value]);
+        }
+
         return back()->with('success', 'Boutique settings saved.');
     }
 }

@@ -35,9 +35,13 @@
 
                         <tbody>
                             @forelse($customers as $customer)
-                                <tr onclick="if (!event.target.closest('a, button, form')) window.location.href='{{ route(auth()->user()->role . '.customers.show', $customer) }}'" style="cursor:pointer">
+                                <tr class="sb-clickable-row"
+                                    data-href="{{ route(auth()->user()->role . '.customers.show', $customer) }}"
+                                    tabindex="0" role="link"
+                                    aria-label="View customer {{ $customer->full_name }}">
                                     <td>
-                                        <a class="sb-text-link" href="{{ route(auth()->user()->role . '.customers.show', $customer) }}"><strong>{{ $customer->full_name }}</strong><small class="sb-cell-sub">View reservations and payments</small></a>
+                                        <strong>{{ $customer->full_name }}</strong>
+                                        <small class="sb-cell-sub">View reservations and payments</small>
                                         <small class="sb-cell-sub">{{ $customer->customer_code }}</small>
                                     </td>
 
@@ -48,7 +52,7 @@
                                     </td>
 
                                     <td>
-                                        <span class="sb-status">{{ ucfirst($customer->status) }}
+                                        <span class="sb-status sb-status-{{ $customer->status }}">{{ ucfirst($customer->status) }}
 
                                         </span>
                                     </td>

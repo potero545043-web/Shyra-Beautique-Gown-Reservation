@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Category;
 use App\Models\Accessory;
+use App\Models\DamageReport;
 use App\Models\Gown;
 use App\Services\VercelBlobStorage;
 use Illuminate\Http\Request;
@@ -45,7 +46,6 @@ class GownController extends Controller
         $inventoryStats = [
             'total' => Gown::count(),
             'available' => Gown::where('status', 'available')->count(),
-            'rented' => Gown::where('status', 'rented')->count(),
             'maintenance' => Gown::whereIn('status', ['for_cleaning', 'under_maintenance', 'damaged'])->count(),
         ];
 
@@ -73,13 +73,18 @@ class GownController extends Controller
             : 12;
         $gowns = $query->paginate($perPage)->withQueryString();
         $categories = Category::where('is_active', true)->orderBy('name')->get();
+        $archivedDamageReports = DamageReport::with('gown')
+            ->whereNotNull('archived_at')
+            ->latest('archived_at')
+            ->paginate(12, ['*'], 'damage_page')
+            ->withQueryString();
 
-        return view('gowns.archive', compact('gowns', 'categories'));
+        return view('gowns.archive', compact('gowns', 'categories', 'archivedDamageReports'));
     }
 
     public function archive(Gown $gown)
     {
-        abort_if(in_array($gown->status, ['reserved', 'rented'], true), 422, 'A reserved or rented gown cannot be archived.');
+        abort_if($gown->status === 'reserved', 422, 'A reserved gown cannot be archived.');
         abort_if($gown->archived_at, 422, 'This gown is already archived.');
 
         $gown->update(['archived_at' => now(), 'archived_status' => $gown->status]);
@@ -172,19 +177,22 @@ class GownController extends Controller
             'rental_price' => [
                 'required',
                 'numeric',
-                'min:0'
+                'min:0',
+                'max:99999999.99',
             ],
 
             'security_deposit' => [
                 'nullable',
                 'numeric',
-                'min:0'
+                'min:0',
+                'max:99999999.99',
             ],
 
             'purchase_price' => [
                 'nullable',
                 'numeric',
-                'min:0'
+                'min:0',
+                'max:99999999.99',
             ],
 
             'description' => [
@@ -219,7 +227,6 @@ class GownController extends Controller
                 Rule::in([
                     'available',
                     'reserved',
-                    'rented',
                     'for_cleaning',
                     'under_maintenance',
                     'damaged',
@@ -251,7 +258,11 @@ class GownController extends Controller
 
 
         $validated['security_deposit'] = 0;
+        if ($validated['status'] === 'damaged') {
+            $validated['condition'] = 'damaged';
+        }
         $gown = Gown::create($validated);
+        DamageReport::ensureForDamagedGown($gown);
         $gown->accessories()->sync(collect($accessoryIds)->mapWithKeys(fn($id) => [$id => ['quantity' => 1]])->all());
 
 
@@ -336,19 +347,22 @@ class GownController extends Controller
             'rental_price' => [
                 'required',
                 'numeric',
-                'min:0'
+                'min:0',
+                'max:99999999.99',
             ],
 
             'security_deposit' => [
                 'nullable',
                 'numeric',
-                'min:0'
+                'min:0',
+                'max:99999999.99',
             ],
 
             'purchase_price' => [
                 'nullable',
                 'numeric',
-                'min:0'
+                'min:0',
+                'max:99999999.99',
             ],
 
             'description' => [
@@ -383,7 +397,6 @@ class GownController extends Controller
                 Rule::in([
                     'available',
                     'reserved',
-                    'rented',
                     'for_cleaning',
                     'under_maintenance',
                     'damaged',
@@ -412,7 +425,11 @@ class GownController extends Controller
 
 
         $validated['security_deposit'] = 0;
+        if ($validated['status'] === 'damaged') {
+            $validated['condition'] = 'damaged';
+        }
         $gown->update($validated);
+        DamageReport::ensureForDamagedGown($gown);
         if ($request->hasFile('image') && $previousImage) {
             app(VercelBlobStorage::class)->delete($previousImage, 'public');
         }

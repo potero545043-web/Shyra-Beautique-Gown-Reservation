@@ -23,7 +23,14 @@ it('renders the notifications bell in the top bar and drops it from the sidebar'
 
     expect($html)->toContain('sb-bell-btn')      // bell icon present
         ->toContain('sb-bell-panel')             // dropdown present
-        ->toContain('sb-i-bell');                // bell svg symbol used
+        ->toContain('sb-i-bell')                 // bell svg symbol used
+        ->toContain('href="' . route('owner.gowns.index') . '"')
+        ->toContain('href="' . route('owner.gowns.index', ['status' => 'available']) . '"')
+        ->toContain('href="' . route('owner.reservations', ['status' => 'pending']) . '"')
+        ->toContain('href="' . route('owner.rentals') . '"')
+        ->toContain('href="' . route('owner.customers') . '"')
+        ->toContain('href="' . route('owner.payments') . '"')
+        ->toContain('href="' . route('owner.gowns.show', $this->gown) . '"');
 });
 
 it('shows the Archive module route for owners', function () {
@@ -179,5 +186,24 @@ it('does not show a Notifications link in the sidebar for any role', function ()
         // legitimately still links to the notifications page.
         expect($html)->not->toContain('sb-side-link sb-notification-active')
             ->not->toContain('>Notifications</span>');
+    }
+});
+
+it('uses the same simple hero design for every dashboard role', function () {
+    foreach ([
+        'owner' => ['owner.dashboard', 'owner.gowns.create', 'OWNER OVERVIEW'],
+        'employee' => ['employee.dashboard', 'employee.catalog', 'EMPLOYEE OVERVIEW'],
+        'customer' => ['customer.dashboard', 'customer.catalog', 'ACCOUNT OVERVIEW'],
+    ] as $role => [$dashboardRoute, $actionRoute, $eyebrow]) {
+        $user = User::factory()->create(['role' => $role]);
+
+        $response = $this->actingAs($user)->get(route($dashboardRoute))->assertOk();
+
+        $response->assertSee('sb-simple-overview-hero', false)
+            ->assertSee('sb-customer-hero-copy', false)
+            ->assertDontSee('sb-overview-hero-art', false)
+            ->assertDontSee(asset('images/overview-gown-line.svg'), false)
+            ->assertSee(route($actionRoute), false)
+            ->assertSee($eyebrow);
     }
 });

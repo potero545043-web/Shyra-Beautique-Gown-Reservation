@@ -81,7 +81,10 @@
                                         };
                                     @endphp
 
-                                    <tr>
+                                    <tr class="sb-clickable-row"
+                                        data-href="{{ route('owner.accessories.show', $accessory) }}"
+                                        tabindex="0" role="link"
+                                        aria-label="View accessory {{ $accessory->name }}">
 
                                         {{-- ACCESSORY (image + name) --}}
                                         <td data-label="Accessory">
@@ -143,24 +146,8 @@
 
                                             <div class="sb-inventory-actions">
 
-                                                <a href="{{ route('owner.accessories.show', $accessory) }}"
-                                                    class="sb-action-view">View</a>
-
                                                 <a href="{{ route('owner.accessories.edit', $accessory) }}"
                                                     class="sb-action-edit">Edit</a>
-
-                                                @if($accessory->status === 'available')
-                                                    <form method="POST"
-                                                        action="{{ route('owner.accessories.destroy', $accessory) }}"
-                                                        onsubmit="return confirm('Mark this accessory unavailable?')">
-
-                                                        @csrf
-                                                        @method('DELETE')
-
-                                                        <button class="sb-retire" type="submit">Disable</button>
-
-                                                    </form>
-                                                @endif
 
                                             </div>
 
@@ -199,7 +186,7 @@
 
 
             {{-- ADD ACCESSORY DRAWER --}}
-            <dialog class="sb-side-drawer" id="accessory-create-dialog" aria-labelledby="accessory-create-title"
+            <dialog class="sb-side-drawer sb-inventory-modal" id="accessory-create-dialog" aria-labelledby="accessory-create-title"
                 onclick="if (event.target === this) this.close()">
 
                 <div class="sb-side-drawer-head">

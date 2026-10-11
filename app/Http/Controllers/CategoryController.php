@@ -107,4 +107,17 @@ class CategoryController extends Controller
             ->route('owner.categories.index')
             ->with('success', 'Category deactivated successfully.');
     }
+
+    public function toggleStatus(Category $category)
+    {
+        $category->update([
+            'is_active' => !$category->is_active,
+        ]);
+
+        return redirect()
+            ->route('owner.categories.index')
+            ->with('success', $category->is_active
+                ? 'Category activated successfully.'
+                : 'Category deactivated successfully.');
+    }
 }

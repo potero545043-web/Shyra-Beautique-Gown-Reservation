@@ -39,12 +39,6 @@
                 </article>
 
                 <article class="sb-stat">
-                    <span>Rented</span>
-                    <b>{{ $inventoryStats['rented'] }}</b>
-                    <small>Currently with customers</small>
-                </article>
-
-                <article class="sb-stat">
                     <span>Maintenance</span>
                     <b>{{ $inventoryStats['maintenance'] }}</b>
                     <small>Cleaning, repair, or damage</small>
@@ -100,8 +94,6 @@
                             <button class="sb-inventory-filter-submit" type="submit" aria-label="Search gowns">
                                 Search
                             </button>
-                            <span class="sb-live-hint" aria-hidden="true">Live</span>
-
                         </div>
 
 
@@ -125,7 +117,6 @@
                             @foreach([
                                     'available',
                                     'reserved',
-                                    'rented',
                                     'for_cleaning',
                                     'under_maintenance',
                                     'damaged',
@@ -188,7 +179,6 @@
                                             : match ($gown->status) {
                                             'available' => ['Available', 'is-available'],
                                             'reserved' => ['Reserved', 'is-reserved'],
-                                            'rented' => ['Rented', 'is-rented'],
                                             'for_cleaning',
                                             'under_maintenance' => ['Maintenance', 'is-maintenance'],
                                             'damaged' => ['Damaged', 'is-damaged'],
@@ -293,9 +283,9 @@
                                                         data-confirm-yes="Yes, archive"
                                                         data-confirm-no="Keep gown">
                                                         @csrf
-                                                        <button class="sb-retire" type="submit"
-                                                            @disabled(in_array($gown->status, ['reserved', 'rented'], true))
-                                                            title="{{ in_array($gown->status, ['reserved', 'rented'], true) ? 'Reserved or rented gowns cannot be archived.' : 'Move this gown to the archive.' }}">
+                                                        <button class="sb-action-warning" type="submit"
+                                                            @disabled($gown->status === 'reserved')
+                                                            title="{{ $gown->status === 'reserved' ? 'Reserved gowns cannot be archived.' : 'Move this gown to the archive.' }}">
                                                             Archive
                                                         </button>
                                                     </form>
@@ -350,7 +340,7 @@
 
 
             {{-- ADD GOWN DRAWER --}}
-            <dialog class="sb-side-drawer" id="gown-create-dialog" aria-labelledby="gown-create-title"
+            <dialog class="sb-side-drawer sb-inventory-modal" id="gown-create-dialog" aria-labelledby="gown-create-title"
                 onclick="if (event.target === this) this.close()">
 
                 <div class="sb-side-drawer-head">
